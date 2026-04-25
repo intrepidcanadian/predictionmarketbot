@@ -345,3 +345,43 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 ### Follow-ups for future runs
 - Could make the $10 break-even target user-configurable (slider)
 - CLOB NO token fetch would make the CLOB net more precise for buy_kalshi_sell_poly direction
+
+### Next milestone to pick up
+**A4** — Spread history
+
+---
+
+## 2026-04-26T02:00:00Z — milestone A4: Spread history (JSONL + sparkline)
+
+### What I did
+- Created `app/api/arb/history/route.ts`:
+  - `GET ?pair_id=...` — reads `frontend/arb-history.jsonl`, filters by pair_id, returns last 100 entries newest-first
+  - `POST` — appends an array of `HistoryEntry` JSON objects as newline-delimited records to the same file
+- Added `HistoryEntry` interface to `page.tsx` (`ts`, `pair_id`, `kalshi_ticker`, `question`, `net_edge_pct`, `edge_cents`, `direction`)
+- Updated `runScan`: after setting opps, fire-and-forget POST to `/api/arb/history` with all 25 results and the current ISO timestamp
+- Added `history` state + `useEffect` to `ArbDetail`: fetches `/api/arb/history?pair_id={opp.id}` whenever the selected pair changes
+- Added "Spread history" section in `ArbDetail` drawer (between Order books and Calculator):
+  - "N scans tracked" badge in header
+  - Sparkline of `net_edge_pct` over time when ≥2 data points (reuses the existing `Sparkline` component)
+  - Compact table: Time (relative, e.g. "38s ago") · Edge · Spread — newest 8 entries shown; most-recent row is bold
+  - "No history yet" placeholder for first-open
+
+### Tradeoffs / shortcuts
+- JSONL grows unboundedly (no rotation); for a localhost-only tool this is fine — a future run could prune entries older than N days
+- History is per `pair_id` (`${poly_id}-${kalshi_ticker}`) — stable across sessions as long as the same pair surfaces from the scan
+- Sparkline uses the existing SVG component; with only 2 identical data points (same scan value) it draws a flat line — will look more useful after several scans with drift
+- Fire-and-forget: history append errors are silently swallowed (acceptable for an observability-only feature)
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` — 35/35 pass
+- Browser: ran scan twice → clicked first row → "Spread history" card showed "2 scans tracked", sparkline, table with "38s ago +37.1% 37¢" and "41s ago +37.1% 37¢"
+- `frontend/arb-history.jsonl` exists on disk with 32 entries (2 scans × 16 pairs)
+- No console errors
+
+### Follow-ups for future runs
+- Add JSONL pruning (e.g. keep last 500 entries globally or last 100 per pair_id)
+- Sparkline will look more useful once spread drifts across multiple sessions
+
+### Next milestone to pick up
+**A5** — Kalshi coverage expansion: paginate Kalshi events (cursor), category filter pills, filter yes_ask + no_ask > 1.10

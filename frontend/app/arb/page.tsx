@@ -19,6 +19,16 @@ const CATEGORY_MAP: Record<string, string> = {
 interface BookLevel { price: number; size: number; }
 interface ClobBook  { bids: BookLevel[]; asks: BookLevel[]; }
 
+interface HistoryEntry {
+  ts: string;
+  pair_id: string;
+  kalshi_ticker: string;
+  question: string;
+  net_edge_pct: number;
+  edge_cents: number;
+  direction: string;
+}
+
 interface PolyMarket {
   id: string; condition_id: string; question: string; slug: string; token_id: string;
   yes_price: number; no_price: number; volume: number; liquidity: number; active: boolean;
@@ -464,6 +474,15 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
   const [execResult,   setExecResult]  = useState<{ ok: boolean; msg: string } | null>(null);
   const [orderbook,    setOrderbook]   = useState<OrderbookData | null>(null);
   const [obLoading,    setObLoading]   = useState(false);
+  const [history,      setHistory]     = useState<HistoryEntry[]>([]);
+
+  useEffect(() => {
+    setHistory([]);
+    fetch(`/api/arb/history?pair_id=${encodeURIComponent(opp.id)}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setHistory(d as HistoryEntry[]))
+      .catch(() => {});
+  }, [opp.id]);
 
   useEffect(() => {
     if (!opp.token_id && !opp.kalshi.ticker) return;
@@ -672,6 +691,62 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
                 clobLoading={obLoading}
               />
             </div>
+          </div>
+
+          {/* Spread history */}
+          <div className="rounded-xl border bg-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Spread history</h3>
+              {history.length > 0 && (
+                <span className="text-[10px] text-muted-foreground font-mono">{history.length} scan{history.length !== 1 ? "s" : ""} tracked</span>
+              )}
+            </div>
+            {history.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">No history yet — run another scan to start tracking this pair.</p>
+            ) : (
+              <>
+                {history.length >= 2 && (
+                  <div className="mb-3">
+                    <Sparkline
+                      data={[...history].reverse().map(e => e.net_edge_pct)}
+                      w={320} h={40}
+                      className="w-full h-10"
+                    />
+                  </div>
+                )}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[11px] font-mono">
+                    <thead className="text-muted-foreground border-b">
+                      <tr>
+                        <th className="text-left pb-1 font-normal">Time</th>
+                        <th className="text-right pb-1 font-normal">Edge</th>
+                        <th className="text-right pb-1 font-normal">Spread</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/40">
+                      {history.slice(0, 8).map((e, i) => {
+                        const ago = (() => {
+                          const s = Math.floor((Date.now() - new Date(e.ts).getTime()) / 1000);
+                          if (s < 60) return `${s}s ago`;
+                          if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+                          if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+                          return `${Math.floor(s / 86400)}d ago`;
+                        })();
+                        return (
+                          <tr key={i} className={i === 0 ? "font-semibold" : "text-muted-foreground"}>
+                            <td className="py-1">{ago}</td>
+                            <td className={`py-1 text-right ${e.net_edge_pct >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                              {e.net_edge_pct >= 0 ? "+" : ""}{e.net_edge_pct.toFixed(1)}%
+                            </td>
+                            <td className="py-1 text-right">{e.edge_cents}¢</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Calculator */}
@@ -929,7 +1004,25 @@ export default function ArbPage() {
         if (best) result.push(toScanOpp(best.poly, k, best.score));
       }
       result.sort((a, b) => b.netEdgePct - a.netEdgePct);
-      setOpps(result.slice(0, 25));
+      const top = result.slice(0, 25);
+      setOpps(top);
+
+      // Persist history (fire-and-forget)
+      const ts = new Date().toISOString();
+      const entries: HistoryEntry[] = top.map(o => ({
+        ts,
+        pair_id: o.id,
+        kalshi_ticker: o.kalshi.ticker,
+        question: o.question,
+        net_edge_pct: o.netEdgePct,
+        edge_cents: o.edgeCents,
+        direction: o.direction,
+      }));
+      fetch("/api/arb/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entries),
+      }).catch(() => {});
     } finally {
       setScanning(false);
     }
