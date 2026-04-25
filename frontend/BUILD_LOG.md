@@ -317,4 +317,31 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 - Large Poly CLOB sizes ($1M+ at 1¢) suggest some markets have automated market-maker bots quoting wide; could filter out levels with size > some threshold for better display
 
 ### Next milestone to pick up
-**A3** — Fee-adjusted net spread: display gross spread, Kalshi fee (~7% of profit), Poly spread cost (~1–2¢), and net spread after fees; add a break-even notional size calculator
+**A4** — Spread history: append each auto-scan result to `frontend/arb-history.jsonl`; show a sparkline or table of spread-over-time for tracked pairs
+
+---
+
+## 2026-04-26T02:30:00Z — milestone A3: Fee-adjusted net spread
+
+### What I did
+- Added per-contract fee breakdown variables in `ArbDetail`: `grossPerContract`, `polyFeePerContract` (2% of buy price), `kalshiFeePerContract` (7% of NO stake), `netPerContract`, and CLOB variants
+- Added "Spread decomposition" section in the detail drawer (between CLOB spread banner and Strategy):
+  - Shows: Gross spread → Poly fee (2% taker) → Kalshi fee (7% settle) → Net spread, all in ¢ per $1 contract
+  - Shows CLOB-based Net (CLOB) when orderbook data is available (conservative, uses ask prices)
+  - Shows "Capital to net $10" break-even line: mid-price amount + CLOB amount (or "CLOB spread negative" when no real edge exists)
+- No new API routes, no executor changes — pure UI addition
+
+### Tradeoffs / shortcuts
+- Poly fee formula uses `buyPrice * 0.02` (2% of notional), not 2% of profit — matches existing calculator for consistency
+- Kalshi fee formula uses `(1 - sellPrice) * 0.07` (7% of NO stake cost), approximating the 7% settlement fee on winnings
+- Break-even target is fixed at $10 net (arbitrary but useful signal); could be user-configurable
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: ran scan → clicked first row ("Trump out as President before GTA VI?") → drawer opened showing SPREAD DECOMPOSITION: Gross +38.5¢, Poly fee -0.2¢, Kalshi fee -3.7¢, Net +34.6¢, Net (CLOB) -11.9¢, "CLOB spread negative" correctly indicating false positive at real ask prices
+- No console errors
+
+### Follow-ups for future runs
+- Could make the $10 break-even target user-configurable (slider)
+- CLOB NO token fetch would make the CLOB net more precise for buy_kalshi_sell_poly direction
