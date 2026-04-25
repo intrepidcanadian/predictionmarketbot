@@ -13,6 +13,7 @@ const CATEGORY_MAP: Record<string, string> = {
   Politics: "Politics", Economics: "Macro", Financials: "Finance",
   Crypto: "Crypto", World: "Politics", Finance: "Finance",
 };
+const KALSHI_CATS = ["Politics", "Economics", "Financials", "Crypto", "World", "Finance"] as const;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -953,15 +954,17 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function ArbPage() {
-  const [opps,    setOpps]    = useState<ScanOpp[]>([]);
-  const [scanning, setScanning] = useState(false);
-  const [view,    setView]    = useState<ViewMode>("table");
-  const [sortBy,  setSortBy]  = useState<SortBy>("edge");
-  const [search,  setSearch]  = useState("");
-  const [minEdge, setMinEdge] = useState(0);
-  const [cat,     setCat]     = useState("all");
-  const [selected, setSelected] = useState<ScanOpp | null>(null);
-  const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
+  const [opps,       setOpps]       = useState<ScanOpp[]>([]);
+  const [scanning,   setScanning]   = useState(false);
+  const [view,       setView]       = useState<ViewMode>("table");
+  const [sortBy,     setSortBy]     = useState<SortBy>("edge");
+  const [search,     setSearch]     = useState("");
+  const [minEdge,    setMinEdge]    = useState(0);
+  const [cat,        setCat]        = useState("all");
+  const [selected,   setSelected]   = useState<ScanOpp | null>(null);
+  const [flashIds,   setFlashIds]   = useState<Set<string>>(new Set());
+  const [kalshiCats, setKalshiCats] = useState<Set<string>>(new Set(KALSHI_CATS));
+  const [kalshiMeta, setKalshiMeta] = useState<{ count: number; illiquid: number } | null>(null);
 
   useEffect(() => {
     if (opps.length === 0) return;
@@ -977,10 +980,12 @@ export default function ArbPage() {
     setScanning(true); setOpps([]);
     try {
       const allPoly: PolyMarket[] = [], allKalshi: KalshiMarket[] = [];
+      const catsParam = encodeURIComponent([...kalshiCats].join(","));
+      let totalIlliquid = 0;
       await Promise.all(SCAN_QUERIES.map(async q => {
         const [pr, kr] = await Promise.all([
           fetch(`/api/markets?q=${encodeURIComponent(q)}&limit=10&active=true`).then(r => r.json()),
-          fetch(`/api/kalshi/markets?search=${encodeURIComponent(q)}&limit=20`).then(r => r.json()),
+          fetch(`/api/kalshi/markets?search=${encodeURIComponent(q)}&categories=${catsParam}`).then(r => r.json()),
         ]);
         (Array.isArray(pr) ? pr : []).forEach((m: Record<string, unknown>) => {
           if (allPoly.find(x => x.id === String(m.id))) return;
@@ -988,10 +993,13 @@ export default function ArbPage() {
           const tokenIds = m.clobTokenIds as string[] | null;
           allPoly.push({ id: String(m.id ?? ""), condition_id: String(m.conditionId ?? ""), question: String(m.question ?? ""), slug: String(m.slug ?? ""), token_id: tokenIds?.[0] ?? "", yes_price: prices[0] ?? 0.5, no_price: prices[1] ?? 0.5, volume: Number(m.volume ?? 0), liquidity: Number(m.liquidity ?? 0), active: Boolean(m.active) });
         });
-        (Array.isArray(kr) ? kr : []).forEach((m: KalshiMarket) => {
+        const krMarkets: KalshiMarket[] = Array.isArray(kr) ? kr : (kr.markets ?? []);
+        if (!Array.isArray(kr) && kr.meta?.illiquid_filtered) totalIlliquid += kr.meta.illiquid_filtered;
+        krMarkets.forEach((m: KalshiMarket) => {
           if (!allKalshi.find(x => x.ticker === m.ticker)) allKalshi.push(m);
         });
       }));
+      setKalshiMeta({ count: allKalshi.length, illiquid: totalIlliquid });
 
       const result: ScanOpp[] = [];
       for (const k of allKalshi) {
@@ -1026,6 +1034,14 @@ export default function ArbPage() {
     } finally {
       setScanning(false);
     }
+  }, [kalshiCats]);
+
+  const toggleKalshiCat = useCallback((cat: string) => {
+    setKalshiCats(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      return next;
+    });
   }, []);
 
   const categories = ["all", ...Array.from(new Set(opps.map(o => o.category)))];
@@ -1064,6 +1080,23 @@ export default function ArbPage() {
               {scanning ? "Scanning…" : "Run Scan"}
             </Button>
           </div>
+        </div>
+
+        {/* Kalshi category filter pills */}
+        <div className="flex items-center gap-2 mb-5 flex-wrap">
+          <span className="text-[11px] text-muted-foreground font-medium">Kalshi categories:</span>
+          {KALSHI_CATS.map(c => (
+            <button key={c} onClick={() => toggleKalshiCat(c)}
+              className={`h-6 px-2.5 rounded-md text-[10px] font-medium border transition-colors ${kalshiCats.has(c) ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
+              {c}
+            </button>
+          ))}
+          {kalshiMeta && (
+            <span className="ml-auto text-[10px] text-muted-foreground font-mono">
+              {kalshiMeta.count} Kalshi markets
+              {kalshiMeta.illiquid > 0 && <span className="text-rose-500"> · {kalshiMeta.illiquid} illiquid filtered</span>}
+            </span>
+          )}
         </div>
 
         {/* KPIs */}

@@ -385,3 +385,43 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ### Next milestone to pick up
 **A5** — Kalshi coverage expansion: paginate Kalshi events (cursor), category filter pills, filter yes_ask + no_ask > 1.10
+
+---
+
+## 2026-04-26T03:30:00Z — milestone A5: Kalshi coverage expansion
+
+### What I did
+- Updated `app/api/kalshi/markets/route.ts`:
+  - Added `?categories=` param (comma-separated); defaults to all 6 ARB categories
+  - Replaced hardcoded 2-page loop with cursor-based pagination up to `MAX_PAGES = 5`
+  - Added `ILLIQUID_THRESHOLD = 1.10` — markets where `yes_ask + no_ask > 1.10` are filtered out after fetching
+  - Changed response shape from bare array to `{ markets, meta: { total_before_filter, illiquid_filtered, pages_fetched } }`
+  - Exported `ALL_KALSHI_CATEGORIES` constant for use by the page
+  - Political series supplement always included regardless of category filter (they lack category metadata)
+- Updated `app/arb/page.tsx`:
+  - Added `KALSHI_CATS` constant and `kalshiCats: Set<string>` state (default: all categories)
+  - Added `kalshiMeta: { count, illiquid }` state to store post-scan stats
+  - Added `toggleKalshiCat` handler (toggle Set membership)
+  - Added Kalshi category filter pills row below the header: 6 toggle pills (active = filled, inactive = muted outline)
+  - "N Kalshi markets · M illiquid filtered" badge shown right-aligned in the pills row after scan
+  - Updated `runScan`: passes `categories=` to Kalshi API, handles new `{ markets, meta }` response shape, sums `illiquid_filtered` across all 7 search queries, sets `kalshiMeta` after scan
+  - Added `kalshiCats` to `useCallback` deps array
+
+### Tradeoffs / shortcuts
+- Illiquid count is summed across 7 search queries (each with overlapping markets); actual unique illiquid count may be lower than displayed (same market can appear across multiple queries). Acceptable approximation for a display-only badge.
+- Political series markets (KXTRUMPSBA etc.) bypass category filter — they're always included since they have no category field from the API and are curated signal for arb
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` — 35/35 pass
+- Browser: `/arb` shows 6 Kalshi category filter pills (all selected by default)
+- Ran scan → "27 Kalshi markets · 7 illiquid filtered" badge appeared; 21 opportunities in results table
+- Screenshot confirms: LIVE badge, category pills row, market count badge, KPI grid, results table all rendering correctly
+- No console errors
+
+### Follow-ups for future runs
+- De-duplicate illiquid count across queries for more accurate badge count
+- Could add "Select all / Clear" toggle for category pills
+
+### Next milestone to pick up
+**A6** — Arb-to-rule bridge: "Create Rule" button on a selected pair pre-fills the rule builder

@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const KALSHI = "https://api.elections.kalshi.com/trade-api/v2";
+const HEADERS = { "User-Agent": "predictionmarketbot/0.1" };
 
-const ARB_CATEGORIES = new Set(["Politics", "Economics", "Financials", "Crypto", "World", "Finance"]);
+export const ALL_KALSHI_CATEGORIES = ["Politics", "Economics", "Financials", "Crypto", "World", "Finance"] as const;
+const DEFAULT_CATEGORIES = new Set<string>(ALL_KALSHI_CATEGORIES);
 
-// Series known to have Polymarket equivalents — fetched in addition to events sweep
+// Series known to have Polymarket equivalents — always included regardless of category filter
 const POLITICAL_SERIES = [
   "KXTRUMPSBA", "KXCORPTAXCUT", "KXCHIPSREPEAL", "KXWITHDRAW",
   "KXGDPUSMIN", "GDPUSMIN", "BTCETHRETURN", "KXSOLETHRATIO",
   "KXARRESTMAMDANI", "KXDJTPOSTMUSK", "KXDEPORTMUSK",
 ];
+
+const MAX_PAGES = 5;
+const ILLIQUID_THRESHOLD = 1.10; // yes_ask + no_ask > this → filtered out
 
 export interface KalshiMarket {
   ticker: string;
@@ -25,61 +30,60 @@ export interface KalshiMarket {
   category: string;
 }
 
+export interface KalshiResponse {
+  markets: KalshiMarket[];
+  meta: {
+    total_before_filter: number;
+    illiquid_filtered: number;
+    pages_fetched: number;
+  };
+}
+
 export async function GET(req: NextRequest) {
   const search = req.nextUrl.searchParams.get("search") ?? "";
   const seriesTicker = req.nextUrl.searchParams.get("series") ?? "";
+  const categoriesParam = req.nextUrl.searchParams.get("categories") ?? "";
+  const activeCategories = categoriesParam
+    ? new Set(categoriesParam.split(",").map(c => c.trim()).filter(Boolean))
+    : DEFAULT_CATEGORIES;
 
   try {
     let markets: KalshiMarket[] = [];
+    let pages_fetched = 0;
 
     if (seriesTicker) {
-      // Targeted series fetch
       const url = new URL(`${KALSHI}/markets`);
       url.searchParams.set("limit", "100");
       url.searchParams.set("status", "open");
       url.searchParams.set("series_ticker", seriesTicker);
-      const res = await fetch(url.toString(), {
-        headers: { "User-Agent": "predictionmarketbot/0.1" },
-        next: { revalidate: 30 },
-      });
+      const res = await fetch(url.toString(), { headers: HEADERS, next: { revalidate: 30 } });
       if (!res.ok) return NextResponse.json({ error: `Kalshi API ${res.status}` }, { status: res.status });
       const data = await res.json();
       markets = (data.markets ?? []).map((m: Record<string, unknown>) => normalizeMarket(m));
     } else {
-      // Sweep events (2 pages) + supplement with political series
       const seen = new Set<string>();
 
-      // Page 1 of events
-      const eventsUrl = `${KALSHI}/events?limit=100&status=open&with_nested_markets=true`;
-      const res1 = await fetch(eventsUrl, {
-        headers: { "User-Agent": "predictionmarketbot/0.1" },
-        next: { revalidate: 30 },
-      });
-      if (res1.ok) {
-        const data1 = await res1.json();
-        extractFromEvents(data1.events ?? [], markets, seen);
+      // Paginate events (cursor-based, up to MAX_PAGES)
+      let cursor: string | null = null;
+      do {
+        const url = new URL(`${KALSHI}/events`);
+        url.searchParams.set("limit", "100");
+        url.searchParams.set("status", "open");
+        url.searchParams.set("with_nested_markets", "true");
+        if (cursor) url.searchParams.set("cursor", cursor);
+        const res = await fetch(url.toString(), { headers: HEADERS, next: { revalidate: 30 } });
+        if (!res.ok) break;
+        const data = await res.json();
+        extractFromEvents(data.events ?? [], markets, seen, activeCategories);
+        cursor = data.cursor ?? null;
+        pages_fetched++;
+      } while (cursor && pages_fetched < MAX_PAGES);
 
-        // Page 2 using cursor
-        if (data1.cursor) {
-          const res2 = await fetch(`${eventsUrl}&cursor=${data1.cursor}`, {
-            headers: { "User-Agent": "predictionmarketbot/0.1" },
-            next: { revalidate: 30 },
-          });
-          if (res2.ok) {
-            const data2 = await res2.json();
-            extractFromEvents(data2.events ?? [], markets, seen);
-          }
-        }
-      }
-
-      // Supplement with curated political/economic series
+      // Supplement with curated political/economic series (always included)
       await Promise.allSettled(
         POLITICAL_SERIES.map(async (series) => {
           const url = `${KALSHI}/markets?limit=20&status=open&series_ticker=${series}`;
-          const res = await fetch(url, {
-            headers: { "User-Agent": "predictionmarketbot/0.1" },
-            next: { revalidate: 30 },
-          });
+          const res = await fetch(url, { headers: HEADERS, next: { revalidate: 30 } });
           if (!res.ok) return;
           const data = await res.json();
           for (const m of data.markets ?? []) {
@@ -93,15 +97,23 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Filter illiquid markets (yes_ask + no_ask > threshold indicates wide spread / low quality)
+    const total_before_filter = markets.length;
+    const liquid = markets.filter(m => m.yes_ask + m.no_ask <= ILLIQUID_THRESHOLD);
+    const illiquid_filtered = total_before_filter - liquid.length;
+
     // Keyword filter
     const filtered = search
-      ? markets.filter((m) => {
+      ? liquid.filter((m) => {
           const q = search.toLowerCase();
           return m.title.toLowerCase().includes(q) || m.ticker.toLowerCase().includes(q);
         })
-      : markets.filter((m) => m.yes_ask > 0 && m.no_ask > 0);
+      : liquid;
 
-    return NextResponse.json(filtered);
+    return NextResponse.json({
+      markets: filtered,
+      meta: { total_before_filter, illiquid_filtered, pages_fetched },
+    } satisfies KalshiResponse);
   } catch (err) {
     const message = err instanceof Error ? err.message : "fetch failed";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -111,11 +123,12 @@ export async function GET(req: NextRequest) {
 function extractFromEvents(
   events: Record<string, unknown>[],
   out: KalshiMarket[],
-  seen: Set<string>
+  seen: Set<string>,
+  activeCategories: Set<string>,
 ) {
   for (const event of events) {
     const cat = String(event.category ?? "");
-    if (!ARB_CATEGORIES.has(cat)) continue;
+    if (!activeCategories.has(cat)) continue;
     const markets = (event.markets as Record<string, unknown>[]) ?? [];
     if (markets.length !== 1) continue;
     const m = markets[0];
