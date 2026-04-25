@@ -95,3 +95,36 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ### Next milestone to pick up
 **M3** — Rule builder: form for trigger/action/guardrail fields, live validation, save to disk
+
+---
+
+## 2026-04-25T02:30:00Z — milestone M3: Rule builder form
+
+### What I did
+- Added shadcn components: `select.tsx`, `label.tsx`, `textarea.tsx`
+- Created `app/rules/new/page.tsx` — full multi-section form:
+  - General: name (auto-fills ID slug), ID, notes, enabled toggle
+  - Target: condition_id, token_id, market_slug (informational), side (YES/NO)
+  - Trigger: type selector + per-trigger fields for all 7 trigger types (price_cross, price_move, volume_spike, orderbook_imbalance, time_before_resolution, scheduled, external_signal)
+  - Action: type selector + per-action fields for all 5 action types (limit_order, marketable_order, close_position, cancel_open_orders, notify_only)
+  - Guardrails: dry_run toggle, max_position_usd, max_daily_loss_usd, cooldown_seconds, max_fires_per_day, kill_if_liquidity_below_usd, disable_after, require_manual_approval
+- Client-side validation before submit (required fields, range checks, type-specific checks)
+- POST to `/api/rules` on save, redirect to `/rules` on success
+- Added "New Rule" button + link to rules list page header
+
+### Tradeoffs / shortcuts
+- No `condition` (all_of predicates) section in the builder — condition types are useful but add significant UI complexity; can add in a future milestone
+- ID auto-fills from name but user can override; validation enforces URL-safe slug format
+- Base UI Select's `onValueChange` passes `string | null` (not `string`) — added null coalescing throughout
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `curl http://localhost:3112/rules/new` → 200, `curl http://localhost:3112/rules` → 200
+- `python -m pytest` — 35/35 pass
+
+### Follow-ups for future runs
+- Add `condition` section (all_of predicates) to the rule builder
+- Add edit flow for existing rules (link from rule card)
+
+### Next milestone to pick up
+**M4** — Audit feed: tail `executor/audit.jsonl`, reverse chronological, expandable JSON records

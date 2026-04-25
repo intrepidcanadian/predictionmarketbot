@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Trash2, RefreshCw, Zap, Clock, AlertCircle } from "lucide-react";
+import { Trash2, RefreshCw, Zap, Clock, AlertCircle, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface RuleState {
@@ -266,10 +266,18 @@ export default function RulesPage() {
             {loading ? "Loading…" : `${rules.length} rule${rules.length !== 1 ? "s" : ""} total`}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={fetchRules} disabled={loading}>
-          <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={fetchRules} disabled={loading}>
+            <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+            Refresh
+          </Button>
+          <Link href="/rules/new">
+            <Button size="sm" className="gap-1.5">
+              <Plus className="size-3.5" />
+              New Rule
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {error && (
