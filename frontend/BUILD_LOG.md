@@ -234,3 +234,37 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 - To use M8: set `ANTHROPIC_API_KEY` in `frontend/.env.local`, restart dev server
 - Could add JSON editing in the review dialog (textarea instead of pre)
 - Could show a diff view of what the draft would change if the form is already partially filled
+
+---
+
+## 2026-04-26T00:30:00Z — milestone A1: Resolution criteria panel
+
+### What I did
+- Created `app/api/arb/resolution/route.ts` — GET handler with `poly_slug` + `kalshi_ticker` params
+  - Fetches Polymarket Gamma API `?slug=...` for full market `description` field
+  - Fetches Kalshi `/markets/{ticker}` for `rules_primary` + `rules_secondary`
+  - Returns `{ poly, kalshi }` with 5-minute ISR cache; uses `Promise.allSettled` so one-sided failures don't break the panel
+- Updated `app/arb/page.tsx`:
+  - Added `ResolutionData` interface and `resolutionData`/`resolutionLoading` state
+  - `useEffect` fires when `selectedPoly?.slug` or `selectedKalshi?.ticker` changes; cancels in-flight fetches on re-select
+  - Added `ResolutionPanel` component: two-column layout (blue Polymarket / purple Kalshi labels), scrollable `max-h-48` text boxes with `whitespace-pre-wrap`, amber "Verify both sides resolve identically" warning, loading skeletons
+  - Placed `ResolutionPanel` below `ArbPanel` inside the `selectedPoly && selectedKalshi` guard
+
+### Tradeoffs / shortcuts
+- No diff highlighting between the two sides — user must read and compare manually
+- `description` field on Gamma can be long markdown; rendered as pre-wrap plain text (no markdown rendering)
+- Kalshi `rules_secondary` is sometimes empty; silently omitted with `filter(Boolean)`
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` — 35/35 pass
+- Browser: ran auto-scan, clicked first row → ArbPanel appeared, then ResolutionPanel loaded with Polymarket description text (multi-paragraph) and Kalshi rules text side-by-side
+- Network: `GET /api/arb/resolution?poly_slug=trump-out-as-president-before-gta-vi-846&kalshi_ticker=KXFEDEND-29-JAN20 → 200 OK`
+- No console errors
+
+### Follow-ups for future runs
+- Could add a "Match" / "Mismatch" indicator (LLM-scored similarity — keep LLM out of trade path, this is display only)
+- Could render Polymarket description as markdown
+
+### Next milestone to pick up
+**A2** — Real executable prices: show Polymarket CLOB bid/ask depth + Kalshi yes_bid/ask/no_bid/ask for the selected pair

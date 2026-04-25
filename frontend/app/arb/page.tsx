@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, ArrowRightLeft, Zap } from "lucide-react";
+import { Search, ArrowRightLeft, Zap, FileText, AlertTriangle } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -169,6 +169,83 @@ function FeeRow({
   );
 }
 
+// ── Resolution criteria panel ─────────────────────────────────────────────
+
+interface ResolutionData {
+  poly: { question: string; description: string } | null;
+  kalshi: { title: string; rules_primary: string; rules_secondary: string } | null;
+}
+
+function ResolutionPanel({
+  poly,
+  kalshi,
+  data,
+  loading,
+}: {
+  poly: PolyMarket;
+  kalshi: KalshiMarket;
+  data: ResolutionData | null;
+  loading: boolean;
+}) {
+  const polyText = data?.poly?.description ?? "";
+  const kalshiText = [data?.kalshi?.rules_primary, data?.kalshi?.rules_secondary]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return (
+    <div className="rounded-xl border bg-card p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <FileText className="h-4 w-4 text-primary" />
+        <h3 className="font-semibold text-sm">Resolution Criteria</h3>
+        <span className="ml-auto flex items-center gap-1 text-xs text-amber-600">
+          <AlertTriangle className="h-3 w-3" />
+          Verify both sides resolve identically before trading
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {/* Polymarket side */}
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-blue-600">Polymarket</p>
+          <p className="text-xs font-medium leading-snug">{poly.question}</p>
+          {loading ? (
+            <div className="space-y-1.5 mt-2">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-5/6" />
+              <Skeleton className="h-3 w-4/6" />
+            </div>
+          ) : polyText ? (
+            <div className="rounded-md bg-muted/40 p-2 max-h-48 overflow-y-auto">
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{polyText}</p>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground italic">No resolution text available</p>
+          )}
+        </div>
+
+        {/* Kalshi side */}
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-purple-600">Kalshi</p>
+          <p className="text-xs font-medium leading-snug">{kalshi.title}</p>
+          {loading ? (
+            <div className="space-y-1.5 mt-2">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-5/6" />
+              <Skeleton className="h-3 w-4/6" />
+            </div>
+          ) : kalshiText ? (
+            <div className="rounded-md bg-muted/40 p-2 max-h-48 overflow-y-auto">
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{kalshiText}</p>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground italic">No resolution text available</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Arb result panel ───────────────────────────────────────────────────────
 
 function ArbPanel({ poly, kalshi }: { poly: PolyMarket; kalshi: KalshiMarket }) {
@@ -275,6 +352,28 @@ export default function ArbPage() {
   const [selectedKalshi, setSelectedKalshi] = useState<KalshiMarket | null>(null);
   const [scanResults, setScanResults] = useState<ScanPair[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [resolutionData, setResolutionData] = useState<ResolutionData | null>(null);
+  const [resolutionLoading, setResolutionLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedPoly || !selectedKalshi) {
+      setResolutionData(null);
+      return;
+    }
+    let cancelled = false;
+    setResolutionLoading(true);
+    setResolutionData(null);
+    const params = new URLSearchParams({
+      poly_slug: selectedPoly.slug,
+      kalshi_ticker: selectedKalshi.ticker,
+    });
+    fetch(`/api/arb/resolution?${params}`)
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setResolutionData(d); })
+      .catch(() => { if (!cancelled) setResolutionData(null); })
+      .finally(() => { if (!cancelled) setResolutionLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedPoly?.slug, selectedKalshi?.ticker]);
 
   const searchPoly = useCallback(async (q: string) => {
     if (!q.trim()) return;
@@ -470,10 +569,16 @@ export default function ArbPage() {
         </div>
       </div>
 
-      {/* Manual arb result */}
+      {/* Manual arb result + resolution criteria */}
       {selectedPoly && selectedKalshi && (
-        <div className="mb-8">
+        <div className="mb-8 space-y-3">
           <ArbPanel poly={selectedPoly} kalshi={selectedKalshi} />
+          <ResolutionPanel
+            poly={selectedPoly}
+            kalshi={selectedKalshi}
+            data={resolutionData}
+            loading={resolutionLoading}
+          />
         </div>
       )}
 
