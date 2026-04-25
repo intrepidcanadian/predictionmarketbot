@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "polymarket-frontend",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd /Users/tony/Documents/predictionmarkets/frontend && bun run dev"],
+      "port": 3111,
+      "autoPort": true
+    }
+  ]
+}
