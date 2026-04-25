@@ -513,12 +513,23 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
     }
   }, [polyClob, kalshiData, buyPoly]);
 
-  const costPerPair = buyPrice + (1 - sellPrice);
-  const shares      = capital / costPerPair;
-  const grossProfit = shares - capital;
-  const fees        = shares * buyPrice * buyFee + shares * (1 - sellPrice) * sellFee;
-  const netProfit   = grossProfit - fees;
-  const netRet      = (netProfit / capital) * 100;
+  const costPerPair            = buyPrice + (1 - sellPrice);
+  const shares                 = capital / costPerPair;
+  const grossProfit            = shares - capital;
+  const fees                   = shares * buyPrice * buyFee + shares * (1 - sellPrice) * sellFee;
+  const netProfit              = grossProfit - fees;
+  const netRet                 = (netProfit / capital) * 100;
+
+  // Per-contract fee breakdown (per $1 payout)
+  const grossPerContract     = 1 - costPerPair;
+  const polyFeePerContract   = buyPrice * POLY_FEE;
+  const kalshiFeePerContract = (1 - sellPrice) * KALSHI_FEE;
+  const netPerContract       = grossPerContract - polyFeePerContract - kalshiFeePerContract;
+  const clobNetPerContract   = execSpread != null
+    ? execSpread - polyFeePerContract - kalshiFeePerContract : null;
+  const breakEvenFor10       = netPerContract > 0 ? Math.ceil(10 / netPerContract) : null;
+  const clobBreakEvenFor10   = clobNetPerContract != null && clobNetPerContract > 0
+    ? Math.ceil(10 / clobNetPerContract) : null;
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
@@ -574,6 +585,49 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
               </div>
             </div>
           )}
+
+          {/* Fee decomposition */}
+          <div className="rounded-xl border bg-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Spread decomposition</h3>
+              <span className="text-[10px] text-muted-foreground">per $1 contract · mid prices</span>
+            </div>
+            {([
+              ["Gross spread",           grossPerContract,         "text-foreground",  false],
+              ["Poly fee (2% taker)",    -polyFeePerContract,      "text-rose-600",    false],
+              ["Kalshi fee (7% settle)", -kalshiFeePerContract,    "text-rose-600",    false],
+              ["Net spread",             netPerContract,           netPerContract > 0 ? "text-emerald-600" : "text-rose-600", true],
+            ] as [string, number, string, boolean][]).map(([label, val, cls, sep]) => (
+              <div key={label} className={`flex items-center justify-between text-xs ${sep ? "pt-1.5 border-t mt-1 font-semibold" : "text-muted-foreground py-0.5"}`}>
+                <span>{label}</span>
+                <span className={`font-mono ${cls}`}>
+                  {val >= 0 ? "+" : "−"}{Math.abs(val * 100).toFixed(1)}¢
+                </span>
+              </div>
+            ))}
+            {clobNetPerContract != null && (
+              <div className="mt-2.5 pt-2.5 border-t">
+                <div className="text-[10px] text-muted-foreground mb-1.5">CLOB ask prices (conservative)</div>
+                <div className="flex items-center justify-between text-xs font-semibold">
+                  <span className="text-muted-foreground">Net (CLOB)</span>
+                  <span className={`font-mono ${clobNetPerContract > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                    {clobNetPerContract >= 0 ? "+" : "−"}{Math.abs(clobNetPerContract * 100).toFixed(1)}¢
+                  </span>
+                </div>
+              </div>
+            )}
+            <div className="mt-3 pt-3 border-t flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Capital to net $10</span>
+              <div className="flex items-center gap-3 font-mono">
+                {breakEvenFor10 != null
+                  ? <span className="text-muted-foreground">{fmtUsd(breakEvenFor10)} mid</span>
+                  : <span className="text-rose-600">mid spread negative</span>}
+                {clobNetPerContract != null && (clobBreakEvenFor10 != null
+                  ? <span className={`font-semibold ${clobBreakEvenFor10 < 5000 ? "text-emerald-600" : "text-amber-600"}`}>{fmtUsd(clobBreakEvenFor10)} CLOB</span>
+                  : <span className="text-rose-600">CLOB spread negative</span>)}
+              </div>
+            </div>
+          </div>
 
           {/* Strategy */}
           <div className="rounded-xl border bg-card px-4 py-3">
