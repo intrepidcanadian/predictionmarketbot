@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  ArrowRightLeft,
   BarChart3,
   BookOpen,
   CheckSquare,
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/markets", label: "Markets", icon: TrendingUp },
+  { href: "/arb", label: "Arb Scanner", icon: ArrowRightLeft },
   { href: "/rules", label: "Rules", icon: BookOpen },
   { href: "/audit", label: "Audit", icon: ScrollText },
   { href: "/approvals", label: "Approvals", icon: CheckSquare },
