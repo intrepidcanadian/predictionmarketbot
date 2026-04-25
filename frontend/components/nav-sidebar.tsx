@@ -8,6 +8,7 @@ import {
   BookOpen,
   CheckSquare,
   ClipboardList,
+  Network,
   ScrollText,
   Settings2,
   TrendingUp,
@@ -22,6 +23,7 @@ const navItems = [
   { href: "/approvals", label: "Approvals", icon: CheckSquare },
   { href: "/positions", label: "Positions", icon: BarChart3 },
   { href: "/signals", label: "Signals", icon: Settings2 },
+  { href: "/architecture", label: "Architecture", icon: Network },
 ];
 
 export function NavSidebar() {

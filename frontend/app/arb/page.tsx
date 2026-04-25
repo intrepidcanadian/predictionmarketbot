@@ -34,32 +34,60 @@ interface KalshiMarket {
 }
 
 interface ArbCalc {
-  poly_yes_plus_kalshi_no: number;
-  poly_no_plus_kalshi_yes: number;
-  best_spread: number;
+  // Direction A: YES on Poly + NO on Kalshi
+  gross_a: number;
+  net_a_if_yes: number;   // net if YES resolves — Poly pays, 2% fee
+  net_a_if_no: number;    // net if NO resolves  — Kalshi pays, 7% fee
+  worst_net_a: number;    // min of above (conservative)
+  // Direction B: NO on Poly + YES on Kalshi
+  gross_b: number;
+  net_b_if_no: number;    // net if NO resolves  — Poly pays, 2% fee
+  net_b_if_yes: number;   // net if YES resolves — Kalshi pays, 7% fee
+  worst_net_b: number;
+  // Summary
+  best_net: number;
   best_direction: "poly-yes/kalshi-no" | "poly-no/kalshi-yes";
 }
 
-// Auto-scan seed queries — topics likely to exist on both exchanges
+// Kalshi charges ~7% of winnings; Polymarket charges ~2% of winnings
+const POLY_FEE = 0.02;
+const KALSHI_FEE = 0.07;
+
+// Auto-scan seed queries
 const SCAN_QUERIES = ["trump", "fed", "bitcoin", "recession", "ukraine", "tariff", "inflation"];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function calcArb(poly: PolyMarket, kalshi: KalshiMarket): ArbCalc {
-  const a = 1 - (poly.yes_price + kalshi.no_ask);
-  const b = 1 - (poly.no_price + kalshi.yes_ask);
+  const gross_a = 1 - (poly.yes_price + kalshi.no_ask);
+  const gross_b = 1 - (poly.no_price + kalshi.yes_ask);
+
+  // Dir A: if YES resolves, Poly pays → 2% fee on (1 − yes_price) winnings
+  const net_a_if_yes = gross_a - POLY_FEE * (1 - poly.yes_price);
+  // Dir A: if NO resolves, Kalshi pays → 7% fee on (1 − no_ask) winnings
+  const net_a_if_no  = gross_a - KALSHI_FEE * (1 - kalshi.no_ask);
+  const worst_net_a  = Math.min(net_a_if_yes, net_a_if_no);
+
+  // Dir B: if NO resolves, Poly pays → 2% fee on (1 − no_price) winnings
+  const net_b_if_no  = gross_b - POLY_FEE * (1 - poly.no_price);
+  // Dir B: if YES resolves, Kalshi pays → 7% fee on (1 − yes_ask) winnings
+  const net_b_if_yes = gross_b - KALSHI_FEE * (1 - kalshi.yes_ask);
+  const worst_net_b  = Math.min(net_b_if_no, net_b_if_yes);
+
+  const best_net = Math.max(worst_net_a, worst_net_b);
+  const best_direction = worst_net_a >= worst_net_b ? "poly-yes/kalshi-no" : "poly-no/kalshi-yes";
+
   return {
-    poly_yes_plus_kalshi_no: a,
-    poly_no_plus_kalshi_yes: b,
-    best_spread: Math.max(a, b),
-    best_direction: a >= b ? "poly-yes/kalshi-no" : "poly-no/kalshi-yes",
+    gross_a, net_a_if_yes, net_a_if_no, worst_net_a,
+    gross_b, net_b_if_no, net_b_if_yes, worst_net_b,
+    best_net, best_direction,
   };
 }
 
-function spreadColor(spread: number) {
-  if (spread > 0.03) return "text-green-600 font-bold";
-  if (spread > 0) return "text-green-500";
-  if (spread > -0.03) return "text-yellow-600";
+function netColor(n: number) {
+  if (n > 0.03) return "text-green-600 font-bold";
+  if (n > 0) return "text-green-500";
+  if (n > -0.03) return "text-yellow-600";
   return "text-muted-foreground";
 }
 
@@ -110,42 +138,77 @@ function KalshiRow({ m, selected, onSelect }: { m: KalshiMarket; selected: boole
   );
 }
 
+// ── Fee breakdown row ──────────────────────────────────────────────────────
+
+function FeeRow({
+  label, cost, gross, feeLabel, feeAmt, net,
+}: {
+  label: string; cost: string; gross: number; feeLabel: string; feeAmt: number; net: number;
+}) {
+  return (
+    <div className="rounded-lg bg-muted/40 p-3 space-y-2">
+      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{label}</p>
+      <div className="grid grid-cols-3 gap-1 text-xs">
+        <div>
+          <p className="text-muted-foreground">Cost</p>
+          <p className="font-mono">{cost}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Gross spread</p>
+          <p className={`font-mono ${netColor(gross)}`}>{fmtSpread(gross)}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Worst-case net</p>
+          <p className={`font-mono text-sm ${netColor(net)}`}>{fmtSpread(net)}</p>
+        </div>
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        {feeLabel}
+      </p>
+    </div>
+  );
+}
+
 // ── Arb result panel ───────────────────────────────────────────────────────
 
 function ArbPanel({ poly, kalshi }: { poly: PolyMarket; kalshi: KalshiMarket }) {
   const arb = calcArb(poly, kalshi);
-  const feeNote = "~7¢ Kalshi fee + ~2¢ Poly spread on $1 notional";
+
+  const feeLabel_a = [
+    `If YES: Poly fee ${fmtPct(POLY_FEE * (1 - poly.yes_price))} → net ${fmtSpread(arb.net_a_if_yes)}`,
+    `If NO: Kalshi fee ${fmtPct(KALSHI_FEE * (1 - kalshi.no_ask))} → net ${fmtSpread(arb.net_a_if_no)}`,
+  ].join(" · ");
+
+  const feeLabel_b = [
+    `If NO: Poly fee ${fmtPct(POLY_FEE * (1 - poly.no_price))} → net ${fmtSpread(arb.net_b_if_no)}`,
+    `If YES: Kalshi fee ${fmtPct(KALSHI_FEE * (1 - kalshi.yes_ask))} → net ${fmtSpread(arb.net_b_if_yes)}`,
+  ].join(" · ");
 
   return (
     <div className="rounded-xl border bg-card p-4 space-y-3">
       <div className="flex items-center gap-2">
         <ArrowRightLeft className="h-4 w-4 text-primary" />
         <h3 className="font-semibold text-sm">Arb calculation</h3>
+        <span className="ml-auto text-xs text-muted-foreground">Poly 2% · Kalshi 7% fee on winning leg</span>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-lg bg-muted/40 p-3 space-y-1">
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
-            Buy YES on Poly · NO on Kalshi
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {fmtPct(poly.yes_price)} + {fmtPct(kalshi.no_ask)} = {fmtPct(poly.yes_price + kalshi.no_ask)}
-          </p>
-          <p className={`text-lg font-mono ${spreadColor(arb.poly_yes_plus_kalshi_no)}`}>
-            {fmtSpread(arb.poly_yes_plus_kalshi_no)}
-          </p>
-        </div>
-        <div className="rounded-lg bg-muted/40 p-3 space-y-1">
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
-            Buy NO on Poly · YES on Kalshi
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {fmtPct(poly.no_price)} + {fmtPct(kalshi.yes_ask)} = {fmtPct(poly.no_price + kalshi.yes_ask)}
-          </p>
-          <p className={`text-lg font-mono ${spreadColor(arb.poly_no_plus_kalshi_yes)}`}>
-            {fmtSpread(arb.poly_no_plus_kalshi_yes)}
-          </p>
-        </div>
+        <FeeRow
+          label="YES on Poly · NO on Kalshi"
+          cost={`${fmtPct(poly.yes_price)} + ${fmtPct(kalshi.no_ask)}`}
+          gross={arb.gross_a}
+          feeLabel={feeLabel_a}
+          feeAmt={0}
+          net={arb.worst_net_a}
+        />
+        <FeeRow
+          label="NO on Poly · YES on Kalshi"
+          cost={`${fmtPct(poly.no_price)} + ${fmtPct(kalshi.yes_ask)}`}
+          gross={arb.gross_b}
+          feeLabel={feeLabel_b}
+          feeAmt={0}
+          net={arb.worst_net_b}
+        />
       </div>
 
       <div className="flex items-start gap-2 rounded-lg bg-muted/30 px-3 py-2">
@@ -155,13 +218,15 @@ function ArbPanel({ poly, kalshi }: { poly: PolyMarket; kalshi: KalshiMarket }) 
             ? "Buy YES on Polymarket, NO on Kalshi"
             : "Buy NO on Polymarket, YES on Kalshi"}
           {" — "}
-          gross spread <span className={spreadColor(arb.best_spread)}>{fmtSpread(arb.best_spread)}</span>
-          {" per $1 notional before fees"}
+          worst-case net after fees{" "}
+          <span className={netColor(arb.best_net)}>{fmtSpread(arb.best_net)}</span>
+          {" per $1 notional"}
         </span>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        ⚠ Fees: {feeNote}. Resolution risk: verify both markets resolve on identical criteria before trading.
+      <p className="text-xs text-amber-600">
+        ⚠ Resolution risk: verify both markets resolve on identical criteria before trading.
+        Fees modeled as 2% of Poly winnings and 7% of Kalshi winnings; actual fees may differ.
       </p>
 
       <div className="text-xs space-y-1 border-t pt-2">
@@ -303,8 +368,8 @@ export default function ArbPage() {
         }
       }
 
-      // Sort by best spread descending
-      pairs.sort((a, b) => b.arb.best_spread - a.arb.best_spread);
+      // Sort by worst-case net spread descending
+      pairs.sort((a, b) => b.arb.best_net - a.arb.best_net);
       setScanResults(pairs.slice(0, 20));
     } finally {
       setScanning(false);
@@ -317,8 +382,8 @@ export default function ArbPage() {
         <h1 className="text-2xl font-semibold mb-1">Arb Scanner</h1>
         <p className="text-sm text-muted-foreground max-w-2xl">
           Cross-exchange arbitrage: find markets where buying YES on one exchange and NO on the other
-          costs less than $1.00 — locking in a risk-free spread. Always verify resolution criteria
-          match before trading.
+          costs less than $1.00. Spreads shown are <strong>worst-case net after fees</strong> (Poly 2% + Kalshi 7% on winning leg).
+          Always verify resolution criteria match before trading.
         </p>
       </div>
 
@@ -421,7 +486,7 @@ export default function ArbPage() {
               Auto-scan
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Searches both exchanges for {SCAN_QUERIES.join(", ")} — matches by keyword overlap, ranked by spread.
+              Searches both exchanges for {SCAN_QUERIES.join(", ")} — matches by keyword overlap, ranked by worst-case net spread after fees.
             </p>
           </div>
           <Button onClick={runAutoScan} disabled={scanning} size="sm" className="gap-2">
@@ -440,42 +505,51 @@ export default function ArbPage() {
                   <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Poly NO</th>
                   <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">K YES ask</th>
                   <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">K NO ask</th>
-                  <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Best spread</th>
+                  <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Gross</th>
+                  <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Net (worst)</th>
                   <th className="px-3 py-2.5 font-medium text-muted-foreground text-center">Direction</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {scanResults.map((pair, i) => (
-                  <tr
-                    key={i}
-                    className="hover:bg-muted/20 cursor-pointer"
-                    onClick={() => {
-                      setSelectedPoly(pair.poly);
-                      setSelectedKalshi(pair.kalshi);
-                    }}
-                  >
-                    <td className="px-3 py-2.5 max-w-[180px]">
-                      <span className="line-clamp-2 leading-snug">{pair.poly.question}</span>
-                    </td>
-                    <td className="px-3 py-2.5 max-w-[180px]">
-                      <span className="line-clamp-2 leading-snug">{pair.kalshi.title}</span>
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-green-600">{fmtPct(pair.poly.yes_price)}</td>
-                    <td className="px-3 py-2.5 text-right font-mono text-red-500">{fmtPct(pair.poly.no_price)}</td>
-                    <td className="px-3 py-2.5 text-right font-mono text-green-600">{fmtPct(pair.kalshi.yes_ask)}</td>
-                    <td className="px-3 py-2.5 text-right font-mono text-red-500">{fmtPct(pair.kalshi.no_ask)}</td>
-                    <td className={`px-3 py-2.5 text-right font-mono ${spreadColor(pair.arb.best_spread)}`}>
-                      {fmtSpread(pair.arb.best_spread)}
-                    </td>
-                    <td className="px-3 py-2.5 text-center">
-                      <Badge variant="outline" className="text-[10px] whitespace-nowrap">
-                        {pair.arb.best_direction === "poly-yes/kalshi-no"
-                          ? "YES↑ / NO↓"
-                          : "NO↑ / YES↓"}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
+                {scanResults.map((pair, i) => {
+                  const gross = pair.arb.best_direction === "poly-yes/kalshi-no"
+                    ? pair.arb.gross_a
+                    : pair.arb.gross_b;
+                  return (
+                    <tr
+                      key={i}
+                      className="hover:bg-muted/20 cursor-pointer"
+                      onClick={() => {
+                        setSelectedPoly(pair.poly);
+                        setSelectedKalshi(pair.kalshi);
+                      }}
+                    >
+                      <td className="px-3 py-2.5 max-w-[160px]">
+                        <span className="line-clamp-2 leading-snug">{pair.poly.question}</span>
+                      </td>
+                      <td className="px-3 py-2.5 max-w-[160px]">
+                        <span className="line-clamp-2 leading-snug">{pair.kalshi.title}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-green-600">{fmtPct(pair.poly.yes_price)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-red-500">{fmtPct(pair.poly.no_price)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-green-600">{fmtPct(pair.kalshi.yes_ask)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-red-500">{fmtPct(pair.kalshi.no_ask)}</td>
+                      <td className={`px-3 py-2.5 text-right font-mono ${netColor(gross)}`}>
+                        {fmtSpread(gross)}
+                      </td>
+                      <td className={`px-3 py-2.5 text-right font-mono ${netColor(pair.arb.best_net)}`}>
+                        {fmtSpread(pair.arb.best_net)}
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <Badge variant="outline" className="text-[10px] whitespace-nowrap">
+                          {pair.arb.best_direction === "poly-yes/kalshi-no"
+                            ? "YES↑ / NO↓"
+                            : "NO↑ / YES↓"}
+                        </Badge>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
