@@ -128,3 +128,32 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ### Next milestone to pick up
 **M4** — Audit feed: tail `executor/audit.jsonl`, reverse chronological, expandable JSON records
+
+---
+
+## 2026-04-25T03:30:00Z — milestones M4+M5+M6+M7: Audit, Approvals, Signals, Positions
+
+### What I did
+- **M4 Audit feed**: `app/api/audit/route.ts` reads `executor/audit.jsonl`, parses JSONL, returns reversed (newest-first). `app/audit/page.tsx` has expandable row per record, colored status badge (submitted/dry_run/guardrail/blocked), green dot for trigger_matched. Auto-refreshes every 5s with live/pause toggle.
+- **M5 Approvals inbox**: `app/api/approvals/route.ts` lists pending/*.json. `app/api/approvals/[id]/route.ts` POST moves file to approved/, DELETE removes it. `app/approvals/page.tsx` shows approve/reject buttons per pending item with JSON preview.
+- **M6 Signals editor**: `app/api/signals/route.ts` GET/PUT reads+writes `signals.json`. `app/signals/page.tsx` key/value table with boolean toggles for true/false values, text inputs for other values. Unsaved-changes banner, Save button, add-row form with Enter key support.
+- **M7 Positions**: Stub table (not wired to live data) showing market, side, shares, avg entry, current price, unrealised PnL with totals row.
+
+### Tradeoffs / shortcuts
+- Audit page: no pagination, just limit=100 newest records
+- Approvals [id] route: id must not contain path separators (trusting filesystem naming)
+- Signals: booleans detected by type of parsed value on load; all new values default to text until parsed
+- Positions: static stub data only
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `curl` all 4 routes return 200: /audit, /approvals, /signals, /positions
+- `python -m pytest` — 35/35 pass
+
+### Follow-ups for future runs
+- M9 (end-to-end walkthrough) is the last milestone — all features need browser verification
+- Could add pagination to audit feed
+- Positions page needs live data from CLOB sidecar
+
+### Next milestone to pick up
+**M9** — End-to-end browser walkthrough (M8 LLM drafting is optional, skip until M3 is battle-tested)
