@@ -191,3 +191,46 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 - `python -m pytest` — 35 passed, 0 failed
 
 ## FRONTEND COMPLETE
+
+---
+
+## 2026-04-26T00:00:00Z — milestone M8: LLM-assisted rule drafting
+
+### What I did
+- Installed `@anthropic-ai/sdk@0.91.1` (bun add)
+- Added shadcn `dialog` component (`bunx shadcn@latest add dialog`)
+- Created `frontend/.env.local` with `ANTHROPIC_API_KEY=` placeholder (gitignored)
+- Created `app/api/rules/draft/route.ts` — POST handler that:
+  - Returns 503 with helpful message if `ANTHROPIC_API_KEY` is not set
+  - Calls `claude-sonnet-4-6` with full rule schema + 6 examples as system prompt
+  - Asks Claude to emit raw JSON only (no code fences); strips accidental fences
+  - Parses and returns `{ rule }` or `{ error }`
+- Updated `app/rules/new/page.tsx` with:
+  - "Draft from description" card (dashed border, Sparkles icon) at top of page
+  - Textarea for English input + "Generate Draft" button (disabled while empty or loading)
+  - Cmd+Enter keyboard shortcut to generate
+  - Loading spinner while waiting for API
+  - Error display below textarea on failure
+  - Review Dialog showing generated JSON in a scrollable `<pre>` block
+  - "Use Draft" button calls `applyDraft()` which maps all rule fields to form state
+  - "Discard" button closes dialog without touching the form
+  - `applyDraft()` converts all typed values to strings (form uses string inputs), flattens `price_expr` for limit orders
+
+### Tradeoffs / shortcuts
+- `price_expr` (dynamic pricing) is serialized as a JSON string in the `price` field — the form only has a plain price input, so dynamic expressions show as raw JSON that the user must understand
+- No JSON editing in the dialog — user reviews and either accepts or discards; edits happen in the form after applying
+- `ANTHROPIC_API_KEY` must be set manually in `.env.local`; no key-management UI
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `bun run build` — exit code 0, 17 routes (new: /api/rules/draft)
+- `python -m pytest` — 35/35 pass
+- Browser: `/rules/new` shows "Draft from description" card with textarea and Generate button
+- Clicked "Generate Draft" with no API key → error "ANTHROPIC_API_KEY not set — add it to frontend/.env.local" shown inline, no console errors
+- Preview screenshot confirms dashed-border card, Sparkles icon, proper layout
+
+### Follow-ups for future runs
+- All milestones are now complete (M0–M9 + M8)
+- To use M8: set `ANTHROPIC_API_KEY` in `frontend/.env.local`, restart dev server
+- Could add JSON editing in the review dialog (textarea instead of pre)
+- Could show a diff view of what the draft would change if the form is already partially filled

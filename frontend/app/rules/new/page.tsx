@@ -15,7 +15,14 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { ArrowLeft, Save } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { ArrowLeft, Save, Sparkles, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -40,6 +47,9 @@ interface FormErrors {
   [key: string]: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DraftRule = Record<string, any>;
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function slugify(s: string): string {
@@ -55,6 +65,12 @@ function validateId(id: string): string | null {
     return "ID must be URL-safe (lowercase, hyphens)";
   if (!/^[a-z0-9-]+$/.test(id)) return "ID may only contain lowercase letters, numbers, hyphens";
   return null;
+}
+
+function toStr(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
 }
 
 // ── Section components ───────────────────────────────────────────────────────
@@ -342,6 +358,13 @@ export default function NewRulePage() {
   const [killIfLiquidityBelow, setKillIfLiquidityBelow] = useState("");
   const [disableAfter, setDisableAfter] = useState("");
 
+  // LLM draft state
+  const [draftDescription, setDraftDescription] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [draftResult, setDraftResult] = useState<DraftRule | null>(null);
+  const [showDraftDialog, setShowDraftDialog] = useState(false);
+
   // Auto-fill ID from name
   const handleNameChange = (v: string) => {
     setName(v);
@@ -359,6 +382,85 @@ export default function NewRulePage() {
     setActionType(v);
     setActionData({});
   };
+
+  // ── LLM draft ───────────────────────────────────────────────────────────────
+
+  async function handleGenerateDraft() {
+    if (!draftDescription.trim()) return;
+    setDrafting(true);
+    setDraftError(null);
+    try {
+      const res = await fetch("/api/rules/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: draftDescription.trim() }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      setDraftResult(body.rule);
+      setShowDraftDialog(true);
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : "Generation failed");
+    } finally {
+      setDrafting(false);
+    }
+  }
+
+  function applyDraft(rule: DraftRule) {
+    // Top-level
+    if (rule.id) setId(String(rule.id));
+    if (rule.name) {
+      setName(String(rule.name));
+      if (!rule.id) setId(slugify(String(rule.name)));
+    }
+    if (typeof rule.enabled === "boolean") setEnabled(rule.enabled);
+    if (rule.notes) setNotes(String(rule.notes));
+
+    // Target
+    const t = rule.target ?? {};
+    if (t.condition_id) setConditionId(String(t.condition_id));
+    if (t.token_id) setTokenId(String(t.token_id));
+    if (t.market_slug) setMarketSlug(String(t.market_slug));
+    if (t.side_label === "YES" || t.side_label === "NO") setSideLabel(t.side_label);
+
+    // Trigger
+    const tr = rule.trigger ?? {};
+    if (tr.type) {
+      setTriggerType(tr.type as TriggerType);
+      const { type: _t, ...rest } = tr;
+      void _t;
+      setTriggerData(Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, toStr(v)])));
+    }
+
+    // Action
+    const ac = rule.action ?? {};
+    if (ac.type) {
+      setActionType(ac.type as ActionType);
+      const { type: _a, price_expr, ...rest } = ac;
+      void _a;
+      // Flatten price_expr if present (limit_order dynamic pricing → show as JSON string in price field)
+      const data = Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, toStr(v)]));
+      if (price_expr) data.price = toStr(price_expr);
+      setActionData(data);
+    }
+
+    // Guardrails
+    const g = rule.guardrails ?? {};
+    if (typeof g.dry_run === "boolean") setDryRun(g.dry_run);
+    if (g.max_position_usd != null) setMaxPositionUsd(String(g.max_position_usd));
+    if (g.max_daily_loss_usd != null) setMaxDailyLossUsd(String(g.max_daily_loss_usd));
+    if (g.cooldown_seconds != null) setCooldownSeconds(String(g.cooldown_seconds));
+    if (g.max_fires_per_day != null) setMaxFiresPerDay(String(g.max_fires_per_day));
+    if (typeof g.require_manual_approval === "boolean") setRequireManualApproval(g.require_manual_approval);
+    if (g.kill_if_liquidity_below_usd != null) setKillIfLiquidityBelow(String(g.kill_if_liquidity_below_usd));
+    if (g.disable_after) setDisableAfter(String(g.disable_after));
+
+    setShowDraftDialog(false);
+    setDraftResult(null);
+    setErrors({});
+  }
+
+  // ── Build rule object ────────────────────────────────────────────────────────
 
   function buildTrigger(): Record<string, unknown> | null {
     if (!triggerType) return null;
@@ -463,7 +565,6 @@ export default function NewRulePage() {
     if (!triggerType) errs.triggerType = "Select a trigger type";
     if (!actionType) errs.actionType = "Select an action type";
 
-    // Trigger field validation
     if (triggerType === "price_cross") {
       const t = parseFloat(triggerData.threshold ?? "");
       if (isNaN(t) || t < 0 || t > 1) errs["trigger.threshold"] = "Must be 0–1";
@@ -494,7 +595,6 @@ export default function NewRulePage() {
       if (!triggerData.edge) errs["trigger.edge"] = "Edge required";
     }
 
-    // Action field validation
     if (actionType === "limit_order") {
       if (!actionData.side) errs["action.side"] = "Required";
       const p = parseFloat(actionData.price ?? "");
@@ -579,6 +679,51 @@ export default function NewRulePage() {
         </Link>
         <h1 className="text-2xl font-semibold">New Rule</h1>
       </div>
+
+      {/* LLM Draft section */}
+      <Card className="mb-6 border-dashed border-2">
+        <CardHeader className="pb-2">
+          <h2 className="text-base font-semibold flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-purple-500" />
+            Draft from description
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Describe your rule in plain English. Claude will generate a draft — you review it before
+            anything is saved.
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <Textarea
+            value={draftDescription}
+            onChange={(e) => setDraftDescription(e.target.value)}
+            placeholder="e.g. Buy $50 of YES if the price drops below 40 cents, with a 10-minute cooldown and dry-run on"
+            rows={3}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerateDraft();
+            }}
+          />
+          {draftError && (
+            <p className="text-xs text-destructive">{draftError}</p>
+          )}
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleGenerateDraft}
+              disabled={drafting || !draftDescription.trim()}
+              className="gap-2"
+            >
+              {drafting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {drafting ? "Generating…" : "Generate Draft"}
+            </Button>
+            <span className="text-xs text-muted-foreground">⌘↵ to generate</span>
+          </div>
+        </CardContent>
+      </Card>
 
       {serverError && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive mb-4">
@@ -817,6 +962,45 @@ export default function NewRulePage() {
           </Link>
         </div>
       </form>
+
+      {/* Draft review dialog */}
+      <Dialog open={showDraftDialog} onOpenChange={setShowDraftDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-purple-500" />
+              Review Generated Draft
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Review the generated JSON. Click &quot;Use Draft&quot; to pre-fill the form — you can still edit
+            before saving. The condition_id and token_id are placeholders you must replace.
+          </p>
+          <div className="flex-1 overflow-auto rounded-md border bg-muted/30 p-3 min-h-0">
+            <pre className="text-xs font-mono whitespace-pre-wrap break-all">
+              {draftResult ? JSON.stringify(draftResult, null, 2) : ""}
+            </pre>
+          </div>
+          <DialogFooter className="flex-shrink-0 gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowDraftDialog(false);
+                setDraftResult(null);
+              }}
+            >
+              Discard
+            </Button>
+            <Button
+              onClick={() => draftResult && applyDraft(draftResult)}
+              className="gap-2"
+            >
+              <Sparkles className="h-4 w-4" />
+              Use Draft
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
