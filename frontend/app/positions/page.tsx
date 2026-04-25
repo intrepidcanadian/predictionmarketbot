@@ -174,10 +174,23 @@ export default function PositionsPage() {
   const [history, setHistory] = useState<PortfolioSnapshot[]>([]);
   const [histLoading, setHistLoading] = useState(false);
 
-  // Load saved address on mount
+  // Load address on mount: prefer saved manual override, fall back to agent wallet env var
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY) ?? "";
-    if (saved) { setAddress(saved); setInputValue(saved); }
+    if (saved) {
+      setAddress(saved);
+      setInputValue(saved);
+      return;
+    }
+    fetch("/api/agent-wallet")
+      .then((r) => r.json())
+      .then(({ address: agentAddr }) => {
+        if (agentAddr) {
+          setAddress(agentAddr);
+          setInputValue(agentAddr);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Fetch all three when address changes
@@ -290,7 +303,7 @@ export default function PositionsPage() {
           <Input
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="0x… Polymarket proxy wallet address"
+            placeholder="0x… agent proxy wallet (auto-loaded from POLYMARKET_FUNDER)"
             className="pl-9 font-mono text-xs"
           />
         </div>
