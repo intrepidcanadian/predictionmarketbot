@@ -268,3 +268,53 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ### Next milestone to pick up
 **A2** — Real executable prices: show Polymarket CLOB bid/ask depth + Kalshi yes_bid/ask/no_bid/ask for the selected pair
+
+---
+
+## 2026-04-26T01:30:00Z — milestone A2: Real executable prices (CLOB orderbook)
+
+### What I did
+- Created `app/api/arb/orderbook/route.ts` — GET handler accepting `token_id` (Poly YES CLOB token) and `kalshi_ticker`
+  - Fetches Polymarket CLOB: `GET https://clob.polymarket.com/book?token_id={token_id}` — returns up to 5 bid/ask levels
+  - Fetches Kalshi single-market endpoint for fresh yes_bid/yes_ask/no_bid/no_ask
+  - Uses `Promise.allSettled` so one-sided failures don't break the panel; `revalidate: 10` for freshness
+- Updated `PolyMarket` interface: added `token_id: string` (from `clobTokenIds[0]`)
+- Updated `ScanOpp` interface: added `token_id: string` (passed through from `toScanOpp`)
+- Updated `runScan`: captures `clobTokenIds?.[0]` as `token_id` from markets API response
+- Updated `VenueBook` component:
+  - New props: `clob?: ClobBook | null`, `clobLoading?: boolean`
+  - Uses real CLOB levels when provided; falls back to synthetic `buildBook` otherwise
+  - Shows green "LIVE" badge when real data is present; animated "…" while loading
+  - "Best ask" / "Best bid" labels replace "Mid" / "Spread"
+  - Shows loading skeleton (3 muted rows) while fetching
+- Updated `ArbDetail`:
+  - Added `orderbook` and `obLoading` state
+  - `useEffect` fetches `/api/arb/orderbook` when `opp.token_id` or `opp.kalshi.ticker` changes
+  - Constructs `kalshiClob` (1-level book) from orderbook response based on `opp.kalshi.side`
+  - Computes `execSpread` using CLOB ask prices: `1 − poly_yes_ask − kalshi_no_ask` (buy_poly direction) or `poly_yes_bid − kalshi_yes_ask` (buy_kalshi direction)
+  - Added "Ask spread (CLOB)" metric card (appears when loading or data available; shown in emerald if positive, rose if negative)
+  - Renamed "Edge" → "Mid edge" and "Spread" → "Mid spread" to distinguish from CLOB-based spread
+  - Updated Order books label: "Poly CLOB live · Kalshi best bid/ask" vs "Poly synthetic · Kalshi best bid/ask"
+
+### Tradeoffs / shortcuts
+- Only the YES token CLOB is fetched (`clobTokenIds[0]`). For "buy_kalshi_sell_poly" direction, the executable spread approximates poly_no_ask ≈ `1 − yes_bid`. Fetching the NO token book would be more precise but doubles the requests.
+- Kalshi doesn't expose full orderbook depth — the "book" for Kalshi is always 1 level (best bid/ask for the relevant YES/NO side)
+- `execSpread` is mathematically correct for the YES-side approximation; the Gamma mid-spread and CLOB spread often diverge significantly (as expected for thin markets)
+- The CLOB `clobTokenIds` is cached by the `/api/markets` revalidate window (30s), so `token_id` could be up to 30s stale — fine for display
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` — 35/35 pass
+- Browser: ran scan → clicked first row → detail drawer opened with "LIVE" badges on both Kalshi and Polymarket VenueBooks
+- Polymarket book shows 5 real bid/ask levels from CLOB (bids: 1¢–5¢, asks: 99¢–93¢)
+- Kalshi shows 1-level book (bid: 7¢, ask: 9¢)
+- "Ask spread (CLOB)" metric: -8¢ (correctly negative — keyword-matched false positive evaporates at real ask prices)
+- Network: `GET /api/arb/orderbook?token_id=108999...&kalshi_ticker=KXFEDEND-29-JAN20 → 200 OK`
+- No console errors, no failed network requests
+
+### Follow-ups for future runs
+- Could fetch the NO token CLOB (`clobTokenIds[1]`) when direction=buy_kalshi_sell_poly for exact NO ask price (removes the `1 − yes_bid` approximation)
+- Large Poly CLOB sizes ($1M+ at 1¢) suggest some markets have automated market-maker bots quoting wide; could filter out levels with size > some threshold for better display
+
+### Next milestone to pick up
+**A3** — Fee-adjusted net spread: display gross spread, Kalshi fee (~7% of profit), Poly spread cost (~1–2¢), and net spread after fees; add a break-even notional size calculator

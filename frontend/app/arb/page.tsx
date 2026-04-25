@@ -16,8 +16,11 @@ const CATEGORY_MAP: Record<string, string> = {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+interface BookLevel { price: number; size: number; }
+interface ClobBook  { bids: BookLevel[]; asks: BookLevel[]; }
+
 interface PolyMarket {
-  id: string; question: string; slug: string;
+  id: string; condition_id: string; question: string; slug: string; token_id: string;
   yes_price: number; no_price: number; volume: number; liquidity: number; active: boolean;
 }
 
@@ -29,6 +32,8 @@ interface KalshiMarket {
 
 interface ScanOpp {
   id: string;
+  condition_id: string;
+  token_id: string;
   question: string;
   category: string;
   poly:   { price: number; side: "YES" | "NO"; volume24h: number; liquidity: number; fee: number };
@@ -92,6 +97,8 @@ function toScanOpp(poly: PolyMarket, kalshi: KalshiMarket, score: number): ScanO
   const netEdgePct  = parseFloat((best_net * 100).toFixed(2));
   return {
     id: `${poly.id}-${kalshi.ticker}`,
+    condition_id: poly.condition_id,
+    token_id: poly.token_id,
     question: poly.question,
     category: CATEGORY_MAP[kalshi.category] ?? "Other",
     poly:   { price: polyPrice,   side: buyPoly ? "YES" : "NO", volume24h: poly.volume,   liquidity: poly.liquidity,   fee: POLY_FEE },
@@ -399,42 +406,77 @@ function OrderBookSide({ side, levels }: { side: "bid" | "ask"; levels: { price:
   );
 }
 
-function VenueBook({ venue, price, side, liquidity, fee, action }: {
+function VenueBook({ venue, price, side, liquidity, fee, action, clob, clobLoading }: {
   venue: "poly" | "kalshi"; price: number; side: "YES" | "NO"; liquidity: number; fee: number; action: "BUY" | "SELL";
+  clob?: ClobBook | null; clobLoading?: boolean;
 }) {
-  const book = useMemo(() => buildBook(price, liquidity), [price, liquidity]);
+  const synthetic = useMemo(() => buildBook(price, liquidity), [price, liquidity]);
+  const book = clob ?? synthetic;
+  const isLive = !!clob;
+  const bestAsk = book.asks[0]?.price ?? price;
+  const bestBid = book.bids[0]?.price ?? price;
+
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <VenueChip venue={venue} size="md"/>
           <span className="font-semibold text-sm">{venue === "poly" ? "Polymarket" : "Kalshi"}</span>
+          {isLive && <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 font-bold tracking-wider">LIVE</span>}
+          {clobLoading && <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground animate-pulse">…</span>}
         </div>
         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${action === "BUY" ? "bg-emerald-500/15 text-emerald-700" : "bg-rose-500/15 text-rose-700"}`}>
           {action} {side}
         </span>
       </div>
       <div className="grid grid-cols-2 gap-2 mb-3 text-[10px] text-muted-foreground">
-        <div><span className="block">Mid</span><span className="text-foreground font-mono text-sm">{fmtC(price)}</span></div>
+        <div><span className="block">Best ask</span><span className="text-foreground font-mono text-sm">{fmtC(bestAsk)}</span></div>
+        <div><span className="block">Best bid</span><span className="text-foreground font-mono text-sm">{fmtC(bestBid)}</span></div>
         <div><span className="block">Liq</span><span className="text-foreground font-mono text-sm">{fmtUsd(liquidity)}</span></div>
         <div><span className="block">Fee</span><span className="text-foreground font-mono text-sm">{(fee * 100).toFixed(0)}%</span></div>
-        <div><span className="block">Spread</span><span className="text-foreground font-mono text-sm">~1¢</span></div>
       </div>
       <div className="grid grid-cols-2 text-[10px] text-muted-foreground text-center border-t pt-2">
         <div className="font-medium">Bids</div><div className="font-medium">Asks</div>
       </div>
-      <div className="grid grid-cols-2 gap-2 mt-1">
-        <OrderBookSide side="bid" levels={book.bids}/>
-        <OrderBookSide side="ask" levels={book.asks}/>
-      </div>
+      {clobLoading ? (
+        <div className="mt-2 space-y-1">
+          {[...Array(3)].map((_, i) => <div key={i} className="h-5 rounded bg-muted animate-pulse"/>)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 mt-1">
+          <OrderBookSide side="bid" levels={book.bids}/>
+          <OrderBookSide side="ask" levels={book.asks}/>
+        </div>
+      )}
     </div>
   );
 }
 
+interface OrderbookData {
+  poly:   ClobBook | null;
+  kalshi: { yes_bid: number; yes_ask: number; no_bid: number; no_ask: number } | null;
+}
+
 function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
-  const [capital, setCapital] = useState(1000);
-  const [executing, setExecuting] = useState(false);
-  const [executed,  setExecuted]  = useState(false);
+  const [capital,      setCapital]     = useState(1000);
+  const [showConfirm,  setShowConfirm] = useState(false);
+  const [executing,    setExecuting]   = useState(false);
+  const [execResult,   setExecResult]  = useState<{ ok: boolean; msg: string } | null>(null);
+  const [orderbook,    setOrderbook]   = useState<OrderbookData | null>(null);
+  const [obLoading,    setObLoading]   = useState(false);
+
+  useEffect(() => {
+    if (!opp.token_id && !opp.kalshi.ticker) return;
+    setOrderbook(null);
+    setObLoading(true);
+    const params = new URLSearchParams();
+    if (opp.token_id)       params.set("token_id",       opp.token_id);
+    if (opp.kalshi.ticker)  params.set("kalshi_ticker",  opp.kalshi.ticker);
+    fetch(`/api/arb/orderbook?${params}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setOrderbook(d as OrderbookData); })
+      .finally(() => setObLoading(false));
+  }, [opp.token_id, opp.kalshi.ticker]);
 
   const buyPoly   = opp.direction === "buy_poly_sell_kalshi";
   const buyVenue  = buyPoly ? "poly" : "kalshi";
@@ -443,6 +485,33 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
   const sellPrice = opp[sellVenue].price;
   const buyFee    = opp[buyVenue].fee;
   const sellFee   = opp[sellVenue].fee;
+
+  // Real CLOB data wiring
+  const polyClob   = orderbook?.poly   ?? null;
+  const kalshiData = orderbook?.kalshi ?? null;
+
+  // Kalshi 1-level book for the side being traded
+  const kalshiClob: ClobBook | null = useMemo(() => {
+    if (!kalshiData) return null;
+    const liq = opp.kalshi.liquidity || 500;
+    return opp.kalshi.side === "NO"
+      ? { bids: [{ price: kalshiData.no_bid,  size: liq }], asks: [{ price: kalshiData.no_ask,  size: liq }] }
+      : { bids: [{ price: kalshiData.yes_bid, size: liq }], asks: [{ price: kalshiData.yes_ask, size: liq }] };
+  }, [kalshiData, opp.kalshi.side, opp.kalshi.liquidity]);
+
+  // Executable spread using CLOB ask prices (conservative)
+  const execSpread: number | null = useMemo(() => {
+    const polyAsk = polyClob?.asks[0]?.price;
+    const polyBid = polyClob?.bids[0]?.price;
+    if (polyAsk == null || polyBid == null || !kalshiData) return null;
+    if (buyPoly) {
+      // buy Poly YES ask + buy Kalshi NO ask
+      return 1 - polyAsk - kalshiData.no_ask;
+    } else {
+      // buy Kalshi YES ask + buy Poly NO (≈ 1 − yes_bid)
+      return polyBid - kalshiData.yes_ask;
+    }
+  }, [polyClob, kalshiData, buyPoly]);
 
   const costPerPair = buyPrice + (1 - sellPrice);
   const shares      = capital / costPerPair;
@@ -473,8 +542,8 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
           {/* Metrics */}
           <div className="grid grid-cols-4 gap-3">
             {[
-              { label: "Edge",      el: <EdgePill pct={opp.netEdgePct} size="lg"/> },
-              { label: "Spread",    el: <span className="text-lg font-semibold font-mono">{opp.edgeCents}¢</span> },
+              { label: "Mid edge",  el: <EdgePill pct={opp.netEdgePct} size="lg"/> },
+              { label: "Mid spread", el: <span className="text-lg font-semibold font-mono">{opp.edgeCents}¢</span> },
               { label: "Cap limit", el: <span className="text-lg font-semibold font-mono">{fmtUsd(opp.capitalCap)}</span> },
               { label: "Closes in", el: <span className="text-lg font-semibold font-mono">{timeUntil(opp.closes)}</span> },
             ].map(({ label, el }) => (
@@ -484,6 +553,27 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
               </div>
             ))}
           </div>
+          {/* Executable spread from CLOB asks */}
+          {(obLoading || execSpread !== null) && (
+            <div className={`rounded-lg border p-3 flex items-center gap-3 ${execSpread !== null && execSpread > 0 ? "border-emerald-500/40 bg-emerald-500/5" : "border-border bg-card"}`}>
+              <div className="flex-1">
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  Ask spread (CLOB)
+                  {obLoading && <span className="text-[9px] animate-pulse">loading…</span>}
+                </div>
+                {execSpread !== null ? (
+                  <div className={`text-lg font-semibold font-mono mt-0.5 ${execSpread > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                    {execSpread >= 0 ? "+" : ""}{Math.round(execSpread * 100)}¢
+                  </div>
+                ) : (
+                  <div className="h-6 w-20 bg-muted rounded animate-pulse mt-0.5"/>
+                )}
+              </div>
+              <div className="text-[10px] text-muted-foreground leading-relaxed text-right">
+                Using best ask prices<br/>from CLOB (conservative)
+              </div>
+            </div>
+          )}
 
           {/* Strategy */}
           <div className="rounded-xl border bg-card px-4 py-3">
@@ -508,11 +598,25 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
           <div>
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Order books</h3>
-              <span className="text-[10px] text-muted-foreground">synthesized · live CLOB coming in A2</span>
+              <span className="text-[10px] text-muted-foreground">
+                {polyClob ? "Poly CLOB live · Kalshi best bid/ask" : "Poly synthetic · Kalshi best bid/ask"}
+              </span>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <VenueBook venue={buyVenue  as "poly"|"kalshi"} price={buyPrice}  side={opp.poly.side} liquidity={opp[buyVenue].liquidity}  fee={buyFee}  action="BUY"/>
-              <VenueBook venue={sellVenue as "poly"|"kalshi"} price={sellPrice} side={opp.poly.side} liquidity={opp[sellVenue].liquidity} fee={sellFee} action="SELL"/>
+              <VenueBook
+                venue={buyVenue  as "poly"|"kalshi"}
+                price={buyPrice}  side={opp.poly.side}
+                liquidity={opp[buyVenue].liquidity}  fee={buyFee}  action="BUY"
+                clob={buyPoly  ? polyClob   : kalshiClob}
+                clobLoading={obLoading}
+              />
+              <VenueBook
+                venue={sellVenue as "poly"|"kalshi"}
+                price={sellPrice} side={opp.kalshi.side}
+                liquidity={opp[sellVenue].liquidity} fee={sellFee} action="SELL"
+                clob={!buyPoly ? polyClob   : kalshiClob}
+                clobLoading={obLoading}
+              />
             </div>
           </div>
 
@@ -590,7 +694,7 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
             <div className="flex items-center justify-between mb-3">
               <div>
                 <div className="text-[10px] uppercase tracking-wider opacity-60">Atomic two-leg execution</div>
-                <div className="text-sm mt-0.5">Both orders route through executor approvals queue.</div>
+                <div className="text-sm mt-0.5 opacity-80">Polymarket leg executes live via CLOB.</div>
               </div>
               <span className="text-xl font-mono font-semibold">{fmtUsd(netProfit)}</span>
             </div>
@@ -604,12 +708,113 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
                 SELL {shares.toFixed(0)} {opp.poly.side} @ {fmtC(sellPrice)}
               </div>
             </div>
-            <button onClick={() => { setExecuting(true); setTimeout(() => { setExecuting(false); setExecuted(true); }, 1400); }}
-              disabled={executing || executed}
-              className={`w-full h-10 rounded-md font-semibold text-sm transition-all disabled:opacity-80 ${executed ? "bg-emerald-500 text-white" : "bg-background text-foreground hover:bg-background/90"}`}>
-              {executed ? "✓ Sent to approvals queue" : executing ? "Routing to executor…" : `Execute · ${fmtUsd(capital)}`}
-            </button>
+            {execResult ? (
+              <div className={`w-full h-10 rounded-md font-semibold text-sm flex items-center justify-center ${execResult.ok ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"}`}>
+                {execResult.msg}
+              </div>
+            ) : (
+              <button onClick={() => setShowConfirm(true)} disabled={executing}
+                className="w-full h-10 rounded-md font-semibold text-sm bg-background text-foreground hover:bg-background/90 transition-all disabled:opacity-60">
+                {executing ? "Submitting…" : `Review & Execute · ${fmtUsd(capital)}`}
+              </button>
+            )}
           </div>
+
+          {/* Confirmation modal */}
+          {showConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowConfirm(false)}>
+              <div className="absolute inset-0 bg-foreground/40 backdrop-blur-[2px]"/>
+              <div className="relative w-full max-w-sm bg-background rounded-2xl border shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+                <h3 className="text-base font-semibold mb-1">Confirm execution</h3>
+                <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                  This will submit a live order to Polymarket&apos;s CLOB. Review carefully.
+                </p>
+
+                {/* Two legs */}
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <VenueChip venue={buyPoly ? "poly" : "kalshi"}/>
+                      <span className="text-[10px] font-bold text-emerald-600 uppercase">Buy</span>
+                    </div>
+                    <div className="font-mono text-sm font-semibold">{fmtC(buyPrice)}</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">{shares.toFixed(1)} {opp.poly.side} shares</div>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <VenueChip venue={buyPoly ? "kalshi" : "poly"}/>
+                      <span className="text-[10px] font-bold text-rose-600 uppercase">Sell</span>
+                    </div>
+                    <div className="font-mono text-sm font-semibold">{fmtC(sellPrice)}</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">{shares.toFixed(1)} {opp.poly.side} shares</div>
+                  </div>
+                </div>
+
+                {/* Summary row */}
+                <div className="rounded-lg border bg-card p-3 mb-4 grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Capital</div>
+                    <div className="font-mono text-sm font-semibold mt-0.5">{fmtUsd(capital)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Fees</div>
+                    <div className="font-mono text-sm font-semibold mt-0.5 text-rose-600">−{fmtUsd(fees)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Net profit</div>
+                    <div className={`font-mono text-sm font-semibold mt-0.5 ${netProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtUsd(netProfit)}</div>
+                  </div>
+                </div>
+
+                {!opp.condition_id && (
+                  <div className="rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-800 text-[11px] px-3 py-2 mb-4">
+                    ⚠ No condition ID — order will be rejected. Re-run the scan to refresh market data.
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button onClick={() => setShowConfirm(false)}
+                    className="flex-1 h-9 rounded-md border text-sm font-medium hover:bg-muted transition-colors">
+                    Cancel
+                  </button>
+                  <button
+                    disabled={executing || !opp.condition_id}
+                    onClick={async () => {
+                      setShowConfirm(false);
+                      setExecuting(true);
+                      try {
+                        const res = await fetch("/api/orders", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            condition_id: opp.condition_id,
+                            side:         opp.poly.side,
+                            action:       buyPoly ? "BUY" : "SELL",
+                            price:        buyPrice,
+                            size_shares:  shares,
+                            order_type:   "GTC",
+                            reason:       `arb-web:${opp.id}`,
+                          }),
+                        });
+                        const json = await res.json();
+                        if (json.status === "submitted" || json.status === "dry_run") {
+                          setExecResult({ ok: true, msg: `✓ Order ${json.status} · ${json.order_id ?? ""}`.trimEnd() });
+                        } else {
+                          setExecResult({ ok: false, msg: `✗ ${json.error ?? json.status}` });
+                        }
+                      } catch (e) {
+                        setExecResult({ ok: false, msg: `✗ Network error` });
+                      } finally {
+                        setExecuting(false);
+                      }
+                    }}
+                    className="flex-1 h-9 rounded-md bg-foreground text-background text-sm font-semibold hover:opacity-90 transition-all disabled:opacity-50">
+                    {executing ? "Submitting…" : "Confirm & Execute"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -651,7 +856,8 @@ export default function ArbPage() {
         (Array.isArray(pr) ? pr : []).forEach((m: Record<string, unknown>) => {
           if (allPoly.find(x => x.id === String(m.id))) return;
           const prices = Array.isArray(m.outcomePrices) ? m.outcomePrices.map(Number) : [0.5, 0.5];
-          allPoly.push({ id: String(m.id ?? ""), question: String(m.question ?? ""), slug: String(m.slug ?? ""), yes_price: prices[0] ?? 0.5, no_price: prices[1] ?? 0.5, volume: Number(m.volume ?? 0), liquidity: Number(m.liquidity ?? 0), active: Boolean(m.active) });
+          const tokenIds = m.clobTokenIds as string[] | null;
+          allPoly.push({ id: String(m.id ?? ""), condition_id: String(m.conditionId ?? ""), question: String(m.question ?? ""), slug: String(m.slug ?? ""), token_id: tokenIds?.[0] ?? "", yes_price: prices[0] ?? 0.5, no_price: prices[1] ?? 0.5, volume: Number(m.volume ?? 0), liquidity: Number(m.liquidity ?? 0), active: Boolean(m.active) });
         });
         (Array.isArray(kr) ? kr : []).forEach((m: KalshiMarket) => {
           if (!allKalshi.find(x => x.ticker === m.ticker)) allKalshi.push(m);
