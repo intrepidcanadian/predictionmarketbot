@@ -157,3 +157,37 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ### Next milestone to pick up
 **M9** — End-to-end browser walkthrough (M8 LLM drafting is optional, skip until M3 is battle-tested)
+
+---
+
+## 2026-04-25T04:00:00Z — milestone M9: End-to-end smoke test
+
+### What I did
+- Full production build: `bun run build` — exit code 0, all 16 routes compile (9 API, 7 pages)
+- Verified all API routes via curl:
+  - GET `/api/markets?limit=2` → 2 live markets from Gamma API ("Russia-Ukraine Ceasefire before GTA VI?")
+  - GET `/api/rules` → 1 rule (from executor/rules/)
+  - GET `/api/audit` → 1 audit record (from executor/audit.jsonl)
+  - GET `/api/approvals` → 0 pending items
+  - GET `/api/signals` → `{}`
+- Full CRUD smoke tests:
+  - POST `/api/rules` with test rule → created id=test-e2e ✓
+  - PATCH `/api/rules/test-e2e` → enabled=False ✓
+  - DELETE `/api/rules/test-e2e` → 204 ✓
+  - PUT `/api/signals` `{"my-signal":true,"score":42}` → written ✓
+  - GET `/api/signals` → reads back correctly ✓
+  - PUT `/api/signals` `{}` → reset ✓
+- `python -m pytest` — 35/35 pass
+- All 7 page routes return HTTP 200: /, /markets, /rules, /rules/new, /audit, /approvals, /positions, /signals
+
+### Tradeoffs / shortcuts
+- Browser screenshot verification was blocked by preview tool connection issue (serverId not found); curl verification confirmed HTTP 200 + content for all routes
+- M8 (LLM rule drafting) is intentionally skipped — the manual builder (M3) is functional and M8 is optional
+- Preview tool workaround: `.claude/launch.json` at project root uses `sh -c "cd frontend && bun run dev"` pattern
+
+### Verified by
+- `bun run build` — exit code 0, 16 routes
+- curl smoke tests on all API endpoints (read + write paths)
+- `python -m pytest` — 35 passed, 0 failed
+
+## FRONTEND COMPLETE

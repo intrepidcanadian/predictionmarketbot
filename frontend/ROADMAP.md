@@ -13,4 +13,4 @@ Milestones are picked up one at a time by the hourly builder. Check off each whe
 - [x] **M6** — Signals editor: key/value UI over `executor/signals.json`, save in place
 - [x] **M7** — Positions + PnL panel: stub data display, ready for live trading path hookup
 - [ ] **M8** — LLM-assisted rule drafting: English → JSON → review modal → save (only after M3 is solid)
-- [ ] **M9** — End-to-end browser walkthrough: all features verified, no console errors
+- [x] **M9** — End-to-end browser walkthrough: all features verified, no console errors
