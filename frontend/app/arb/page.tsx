@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight } from "lucide-react";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -469,6 +470,7 @@ interface OrderbookData {
 }
 
 function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
+  const router = useRouter();
   const [capital,      setCapital]     = useState(1000);
   const [showConfirm,  setShowConfirm] = useState(false);
   const [executing,    setExecuting]   = useState(false);
@@ -818,6 +820,37 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
               </div>
             </div>
           </div>
+
+          {/* Create Rule from Arb */}
+          {opp.netEdgePct > 0 && (
+            <button
+              onClick={() => {
+                const params = new URLSearchParams({
+                  from_arb: "1",
+                  condition_id: opp.condition_id,
+                  token_id: opp.token_id,
+                  side: opp.poly.side,
+                  price: opp.poly.price.toFixed(4),
+                  kalshi: opp.kalshi.ticker,
+                  edge: opp.netEdgePct.toFixed(2),
+                  question: opp.question.slice(0, 100),
+                });
+                router.push(`/rules/new?${params}`);
+              }}
+              className="w-full rounded-xl border-2 border-dashed border-emerald-500/40 bg-emerald-500/5 p-4 hover:border-emerald-500/60 hover:bg-emerald-500/8 transition-all text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="size-9 rounded-lg bg-emerald-500/15 grid place-items-center text-emerald-700 shrink-0">
+                  <Plus className="size-4"/>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-emerald-700">Create Rule from this arb</div>
+                  <div className="text-xs text-muted-foreground">Pre-fills rule builder with price_cross trigger · limit_order · dry_run + manual approval on</div>
+                </div>
+                <ChevronRight className="ml-auto size-4 text-muted-foreground shrink-0"/>
+              </div>
+            </button>
+          )}
 
           {/* Execute */}
           <div className="rounded-xl border-2 border-foreground bg-foreground text-background p-4">

@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -323,7 +323,16 @@ function ActionFields({
 // ── Main form ─────────────────────────────────────────────────────────────────
 
 export default function NewRulePage() {
+  return (
+    <Suspense>
+      <NewRuleForm />
+    </Suspense>
+  );
+}
+
+function NewRuleForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -364,6 +373,36 @@ export default function NewRulePage() {
   const [draftError, setDraftError] = useState<string | null>(null);
   const [draftResult, setDraftResult] = useState<DraftRule | null>(null);
   const [showDraftDialog, setShowDraftDialog] = useState(false);
+
+  // Pre-fill from arb scanner
+  useEffect(() => {
+    if (searchParams.get("from_arb") !== "1") return;
+    const question   = searchParams.get("question") ?? "";
+    const condId     = searchParams.get("condition_id") ?? "";
+    const tokId      = searchParams.get("token_id") ?? "";
+    const side       = searchParams.get("side") as "YES" | "NO" | null;
+    const price      = searchParams.get("price") ?? "";
+    const kalshi     = searchParams.get("kalshi") ?? "";
+    const edge       = searchParams.get("edge") ?? "";
+
+    const ruleName = `Arb: ${question.slice(0, 60)}`;
+    setName(ruleName);
+    setId(slugify(ruleName));
+    setNotes(`Arb with Kalshi ${kalshi} · net edge ${edge}%`);
+    if (condId) setConditionId(condId);
+    if (tokId)  setTokenId(tokId);
+    if (side === "YES" || side === "NO") setSideLabel(side);
+
+    setTriggerType("price_cross");
+    setTriggerData({ threshold: price, direction: "below" });
+
+    setActionType("limit_order");
+    setActionData({ side: "BUY", price, size_usd: "50", order_type: "GTC" });
+
+    setDryRun(true);
+    setRequireManualApproval(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-fill ID from name
   const handleNameChange = (v: string) => {
