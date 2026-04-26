@@ -1199,3 +1199,34 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A29** — to be defined. Candidates: Spread change delta column (show ↑/↓ vs previous scan in table edge column); Kalshi position tracking; pair score vs spread correlation scatter.
+
+---
+
+## 2026-04-27T03:00:00Z — milestone A29: Spread delta indicator in Edge column
+
+### What I did
+- Added `prevEdgeRef = useRef<Map<string, number>>(new Map())` to `ArbPage`
+- In `runScan`, before overwriting `prevOppsRef.current`, snapshot the previous scan's edges into `prevEdgeRef.current` (keyed by `opp.id`)
+- Added `prevEdgeRef?: React.MutableRefObject<Map<string, number>>` prop to `TableView`
+- In the Edge cell of each table row: after `EdgePill`, render a small `↑`/`↓` + magnitude string when `|delta| >= 0.1`; green for widening spread, red for narrowing
+- Passed `prevEdgeRef` from `ArbPage` to `TableView` at the render site
+
+### Tradeoffs / shortcuts
+- Delta only visible after the second scan — first scan has no previous data (correct; the ref starts empty)
+- No state/version counter needed: `TableView` re-renders whenever `opps` changes (via `setOpps`), which happens right after `prevEdgeRef.current` is updated in `runScan`, so React reads the latest ref value
+- Threshold of 0.1pp ignores sub-tick noise; identical prices between scans show no delta (verified: two back-to-back scans on stable market returned clean edge pills with no arrow)
+- Delta is session-only; resets on page reload (the previous scan ref is not persisted)
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: ran first scan (2 results, no arrows — correct); ran second scan immediately (prices unchanged, delta < 0.1pp, no arrows — correct stable-market behavior)
+- No console errors
+
+### Follow-ups for future runs
+- Delta arrows will be visible when auto-scan is running over a volatile session — need a real market movement to see them in practice
+- Kalshi position tracking still outstanding
+- Pair score vs spread correlation scatter still outstanding
+
+### Next milestone to pick up
+**A30** — to be defined. Candidates: Kalshi position tracking; pair score vs spread correlation scatter; per-pair spread change history chart in drawer.
