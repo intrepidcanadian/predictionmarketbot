@@ -592,4 +592,41 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - Architecture page arrow SVG could use animated dashes for a live-data feel
 
 ### Next milestone to pick up
-**A11** — to be defined. Candidates: Kalshi position tracking; JSONL per-pair history cap; /arb URL-param shareable state (encode active filters into query string).
+**A11** — Browser notifications for spread alerts.
+
+---
+
+## 2026-04-26T09:30:00Z — milestone A11: Browser notifications for spread alerts
+
+### What I did
+- Added `Bell` icon import from lucide-react
+- Added `NOTIFY_THRESHOLDS = [5, 10, 20] as const` constant
+- Added 3 new persisted state vars via `usePref`: `notifyEnabled` ("arb:notify", default false), `notifyThreshold` ("arb:notify-thresh", default 5)
+- Added `notifyPerm` useState (init from `Notification.permission` on mount via useEffect)
+- Added `notifiedIdsRef` (Set<string>) — tracks pair IDs already alerted this session; cleared only when a new manual scan runs
+- Added `notifyRef` (mirror of enabled+threshold) — kept in sync via useEffect so `runScan` (a stale `useCallback`) can read latest notify prefs without needing them in its dep array
+- Added `toggleNotify` async handler: requests `Notification.requestPermission()` on first enable; sets `notifyPerm`; bails if denied
+- In `runScan`, after `setOpps(top)`: iterates top opps; for each where `netEdgePct >= notifyRef.current.threshold` and not in `notifiedIdsRef.current`, fires `new Notification(...)` with pair question + prices, tags with `arb-{id}` (browser de-dupes by tag), sets `onclick` to `window.focus()`
+- Added "Notify controls" UI block in the page header between search and Auto: threshold pill group (`>5% / >10% / >20%`) visible when enabled; Bell button styled violet when active, opacity-50 + "Blocked" label when permission is denied
+
+### Tradeoffs / shortcuts
+- `notifiedIdsRef` is session-only (in-memory Set); page reload resets it — acceptable since a fresh scan after reload would re-alert on the same pairs. A durable set (localStorage) would avoid that but adds complexity.
+- `notifyRef` pattern mirrors `autoRunRef` — avoids adding `notifyEnabled`/`notifyThreshold` to `runScan`'s dep array which would cascade into restarting the countdown useEffect
+- Notification body truncates question at 80 chars to stay within OS notification char limits
+- `tag: arb-{opp.id}` lets the browser group/replace notifications for the same pair (only one notification per pair visible in the notification center)
+- Preview environment shows "Blocked" (correct — headless browser has Notification.permission === "denied"); can't demo actual notification firing in the preview
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `bun run build` — exit code 0, all routes compile
+- `python -m pytest` — 35/35 pass
+- Browser: `/arb` shows "Blocked" Notify button correctly positioned between search and Auto; no console errors
+- Preview screenshot confirms layout: Search · Blocked · Auto · Run Scan in header row
+
+### Follow-ups for future runs
+- Test actual notification firing in a real browser (grant Notification permission in browser site settings)
+- Could add a "Clear alerts" button to reset `notifiedIdsRef` within a session so re-appearing pairs can re-alert
+- Could show a small notification count badge on the Bell icon after alerts fire
+
+### Next milestone to pick up
+**A12** — to be defined. Candidates: URL-param shareable arb state; JSONL per-pair history cap; Kalshi position tracking.
