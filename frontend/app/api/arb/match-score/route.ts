@@ -9,7 +9,7 @@ Rules:
 - Score 40–69 if there is topical overlap but meaningfully different resolution criteria
 - Score 0–39 if they are different events despite sharing keywords
 
-Always return valid JSON with no explanation outside the JSON object.`;
+When resolution text is provided, use it as the primary signal — titles can be misleading. Always return valid JSON with no explanation outside the JSON object.`;
 
 export async function POST(req: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -20,8 +20,9 @@ export async function POST(req: NextRequest) {
   }
 
   let poly_question: string, kalshi_title: string;
+  let poly_resolution: string | undefined, kalshi_resolution: string | undefined;
   try {
-    ({ poly_question, kalshi_title } = await req.json());
+    ({ poly_question, kalshi_title, poly_resolution, kalshi_resolution } = await req.json());
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -29,6 +30,12 @@ export async function POST(req: NextRequest) {
   if (!poly_question?.trim() || !kalshi_title?.trim()) {
     return NextResponse.json({ error: "poly_question and kalshi_title are required" }, { status: 400 });
   }
+
+  const hasResolution = !!(poly_resolution?.trim() || kalshi_resolution?.trim());
+
+  const userMsg = hasResolution
+    ? `Polymarket question: "${poly_question.trim()}"\nPolymarket resolution rules: "${(poly_resolution ?? "").trim()}"\n\nKalshi title: "${kalshi_title.trim()}"\nKalshi resolution rules: "${(kalshi_resolution ?? "").trim()}"\n\nRespond with JSON only:\n{"score": <0-100>, "verdict": "<one sentence, max 20 words>"}`
+    : `Polymarket: "${poly_question.trim()}"\n\nKalshi: "${kalshi_title.trim()}"\n\nRespond with JSON only:\n{"score": <0-100>, "verdict": "<one sentence, max 20 words>"}`;
 
   try {
     const client = new Anthropic();
@@ -42,12 +49,7 @@ export async function POST(req: NextRequest) {
           cache_control: { type: "ephemeral" },
         },
       ] as Parameters<typeof client.messages.create>[0]["system"],
-      messages: [
-        {
-          role: "user",
-          content: `Polymarket: "${poly_question.trim()}"\n\nKalshi: "${kalshi_title.trim()}"\n\nRespond with JSON only:\n{"score": <0-100>, "verdict": "<one sentence, max 20 words>"}`,
-        },
-      ],
+      messages: [{ role: "user", content: userMsg }],
     });
 
     const raw = msg.content[0].type === "text" ? msg.content[0].text : "";
@@ -61,7 +63,7 @@ export async function POST(req: NextRequest) {
     const verdict = String(parsed.verdict ?? "").slice(0, 120);
     const grade: "H" | "M" | "L" = score >= 70 ? "H" : score >= 40 ? "M" : "L";
 
-    return NextResponse.json({ score, verdict, grade });
+    return NextResponse.json({ score, verdict, grade, usedResolution: hasResolution });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Scoring failed";
     const status = message.includes("API key") ? 401 : 500;

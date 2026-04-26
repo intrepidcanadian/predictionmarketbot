@@ -594,6 +594,7 @@ interface AiMatch {
   score: number;
   verdict: string;
   grade: "H" | "M" | "L";
+  usedResolution?: boolean;
 }
 
 function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
@@ -636,46 +637,71 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
       .finally(() => setObLoading(false));
   }, [opp.token_id, opp.kalshi.ticker]);
 
+  // Sequential effect: fetch resolution first, then AI score with resolution text for higher accuracy.
+  // If AI score is cached, still fetch resolution for display but skip the API call.
   useEffect(() => {
-    const cached = aiScoreCache.current.get(opp.id);
-    if (cached) {
-      setAiMatch(cached);
-      setAiMatchLoading(false);
-      setAiMatchError(null);
-      return;
-    }
-    setAiMatch(null);
-    setAiMatchError(null);
-    setAiMatchLoading(true);
-    fetch("/api/arb/match-score", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ poly_question: opp.question, kalshi_title: opp.kalshi.title }),
-    })
-      .then(r => r.json())
-      .then(d => {
-        if (d.error) setAiMatchError(d.error);
-        else {
-          setAiMatch(d as AiMatch);
-          aiScoreCache.current.set(opp.id, d as AiMatch);
-        }
-      })
-      .catch(() => setAiMatchError("Network error"))
-      .finally(() => setAiMatchLoading(false));
-  }, [opp.id, aiScoreCache]);
+    let cancelled = false;
 
-  useEffect(() => {
+    const cachedAI = aiScoreCache.current.get(opp.id);
     setResolution(null);
     setResLoading(true);
-    const params = new URLSearchParams();
-    if (opp.slug)         params.set("poly_slug",     opp.slug);
-    if (opp.kalshi.ticker) params.set("kalshi_ticker", opp.kalshi.ticker);
-    fetch(`/api/arb/resolution?${params}`)
+    setAiMatch(cachedAI ?? null);
+    setAiMatchError(null);
+    setAiMatchLoading(!cachedAI);
+
+    const resParams = new URLSearchParams();
+    if (opp.slug)          resParams.set("poly_slug",     opp.slug);
+    if (opp.kalshi.ticker) resParams.set("kalshi_ticker", opp.kalshi.ticker);
+
+    fetch(`/api/arb/resolution?${resParams}`)
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setResolution(d as ResolutionData); })
-      .catch(() => {})
-      .finally(() => setResLoading(false));
-  }, [opp.id, opp.slug, opp.kalshi.ticker]);
+      .then(async (resData: ResolutionData | null) => {
+        if (cancelled) return;
+        setResolution(resData);
+        setResLoading(false);
+
+        if (cachedAI) return; // AI already loaded from cache
+
+        const polyRes    = resData?.poly?.description?.slice(0, 400)?.trim() ?? "";
+        const kalshiRes  = [resData?.kalshi?.rules_primary, resData?.kalshi?.rules_secondary]
+          .filter(Boolean).join("\n").slice(0, 400).trim();
+
+        const body: Record<string, string> = {
+          poly_question: opp.question,
+          kalshi_title:  opp.kalshi.title,
+        };
+        if (polyRes)   body.poly_resolution   = polyRes;
+        if (kalshiRes) body.kalshi_resolution = kalshiRes;
+
+        try {
+          const r = await fetch("/api/arb/match-score", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (cancelled) return;
+          const d = await r.json();
+          if (d.error) setAiMatchError(d.error);
+          else {
+            setAiMatch(d as AiMatch);
+            aiScoreCache.current.set(opp.id, d as AiMatch);
+          }
+        } catch {
+          if (!cancelled) setAiMatchError("Network error");
+        } finally {
+          if (!cancelled) setAiMatchLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResLoading(false);
+          if (!cachedAI) setAiMatchError("Network error");
+          if (!cachedAI) setAiMatchLoading(false);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [opp.id, opp.slug, opp.kalshi.ticker, opp.question, opp.kalshi.title, aiScoreCache]);
 
   const buyPoly   = opp.direction === "buy_poly_sell_kalshi";
   const buyVenue  = buyPoly ? "poly" : "kalshi";
@@ -1027,7 +1053,12 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
           <div className="rounded-xl border bg-card p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">AI Similarity</h3>
-              <span className="text-[10px] text-muted-foreground">claude-haiku · display only</span>
+              <span className="text-[10px] text-muted-foreground">
+                claude-haiku · display only
+                {aiMatch?.usedResolution
+                  ? <span className="ml-1.5 text-emerald-600 dark:text-emerald-400">· resolution text</span>
+                  : aiMatch && <span className="ml-1.5 text-amber-600 dark:text-amber-400">· titles only</span>}
+              </span>
             </div>
             {aiMatchLoading && (
               <div className="space-y-2">
