@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RefreshCw, Wallet } from "lucide-react";
@@ -24,6 +23,8 @@ interface Position {
   currentValue: number;
   closed: boolean;
   endDate: string | null;
+  source_rule?: string;
+  venue?: string;
 }
 
 interface Activity {
@@ -270,8 +271,14 @@ export default function PositionsPage() {
 
   const open = positions.filter((p) => !p.closed);
   const closed = positions.filter((p) => p.closed);
-  const totalPnl = open.reduce((s, p) => s + p.cashPnl, 0);
-  const totalValue = open.reduce((s, p) => s + p.currentValue, 0);
+  const totalPnl    = open.reduce((s, p) => s + p.cashPnl, 0);
+  const totalValue  = open.reduce((s, p) => s + p.currentValue, 0);
+  const totalCost   = open.reduce((s, p) => s + p.initialValue, 0);
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+  const closedPnl   = closed.reduce((s, p) => s + p.cashPnl, 0);
+  const winners     = open.filter((p) => p.cashPnl > 0).length;
+  const losers      = open.filter((p) => p.cashPnl < 0).length;
+  const ruleCount   = positions.filter((p) => p.source_rule).length;
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -348,20 +355,43 @@ export default function PositionsPage() {
 
             {!posLoading && open.length > 0 && (
               <>
-                <div className="grid grid-cols-3 gap-4 mb-4">
-                  <div className="rounded-lg border p-4">
-                    <p className="text-xs text-muted-foreground mb-1">Open positions</p>
-                    <p className="text-2xl font-semibold">{open.length}</p>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+                  <div className="rounded-xl border border-border bg-card p-4">
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Open positions</div>
+                    <div className="text-2xl font-semibold font-mono tabular-nums mt-1">{open.length}</div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">{ruleCount} rule-attributed</div>
                   </div>
-                  <div className="rounded-lg border p-4">
-                    <p className="text-xs text-muted-foreground mb-1">Portfolio value</p>
-                    <p className="text-2xl font-semibold">{fmtUsd(totalValue)}</p>
+                  <div className="rounded-xl border border-border bg-card p-4">
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Portfolio value</div>
+                    <div className="text-2xl font-semibold font-mono tabular-nums mt-1">{fmtUsd(totalValue)}</div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">cost basis {fmtUsd(totalCost)}</div>
                   </div>
-                  <div className="rounded-lg border p-4">
-                    <p className="text-xs text-muted-foreground mb-1">Unrealised PnL</p>
-                    <p className={`text-2xl font-semibold ${totalPnl >= 0 ? "text-green-600" : "text-red-500"}`}>
-                      {totalPnl >= 0 ? "+" : ""}{fmtUsd(totalPnl)}
-                    </p>
+                  <div className="rounded-xl border border-border bg-card p-4">
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Unrealised PnL</div>
+                    <div className={`text-2xl font-semibold font-mono tabular-nums mt-1 ${totalPnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                      {totalPnl >= 0 ? "+" : "−"}{fmtUsd(Math.abs(totalPnl))}
+                    </div>
+                    <div className={`text-[11px] mt-0.5 ${totalPnl >= 0 ? "text-emerald-600/80 dark:text-emerald-400/80" : "text-rose-600/80 dark:text-rose-400/80"}`}>
+                      {totalPnlPct >= 0 ? "+" : ""}{totalPnlPct.toFixed(1)}%
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-border bg-card p-4">
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Realised (closed)</div>
+                    <div className={`text-2xl font-semibold font-mono tabular-nums mt-1 ${closedPnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                      {closedPnl >= 0 ? "+" : "−"}{fmtUsd(Math.abs(closedPnl))}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">{closed.length} settled</div>
+                  </div>
+                  <div className="rounded-xl border border-border bg-card p-4">
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Hit rate</div>
+                    <div className="text-2xl font-semibold font-mono tabular-nums mt-1">
+                      {Math.round((winners / Math.max(1, winners + losers)) * 100)}%
+                    </div>
+                    <div className="text-[11px] mt-0.5">
+                      <span className="text-emerald-600 dark:text-emerald-400">{winners}W</span>
+                      <span className="text-muted-foreground"> · </span>
+                      <span className="text-rose-600 dark:text-rose-400">{losers}L</span>
+                    </div>
                   </div>
                 </div>
                 <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Open</h2>
@@ -401,60 +431,53 @@ export default function PositionsPage() {
               <p className="text-center py-16 text-muted-foreground text-sm">No trade history found.</p>
             )}
             {!actLoading && activity.length > 0 && (
-              <div className="rounded-xl border overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Date</th>
-                      <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Market</th>
-                      <th className="px-3 py-2.5 font-medium text-muted-foreground text-center">Side</th>
-                      <th className="px-3 py-2.5 font-medium text-muted-foreground text-center">Outcome</th>
-                      <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Shares</th>
-                      <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Price</th>
-                      <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {activity.map((a, i) => {
-                      const isBuy = (a.side ?? "").toUpperCase() === "BUY";
-                      const isYes = (a.outcome ?? "").toUpperCase() === "YES";
-                      const total = a.usdcSize ?? ((a.size ?? 0) * (a.price ?? 0));
-                      return (
-                        <tr key={i} className="hover:bg-muted/20">
-                          <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
-                            {a.timestamp ? fmtDate(a.timestamp) : "—"}
-                          </td>
-                          <td className="px-3 py-2.5 max-w-[220px]">
-                            <span className="line-clamp-2 leading-snug">{a.title ?? "—"}</span>
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <Badge
-                              variant="outline"
-                              className={isBuy
-                                ? "border-green-500/40 text-green-700 bg-green-500/10"
-                                : "border-red-400/40 text-red-600 bg-red-400/10"}
-                            >
-                              {a.side ?? "—"}
-                            </Badge>
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <Badge
-                              variant="outline"
-                              className={isYes
-                                ? "border-blue-400/40 text-blue-700 bg-blue-400/10"
-                                : "border-orange-400/40 text-orange-700 bg-orange-400/10"}
-                            >
-                              {a.outcome ?? "—"}
-                            </Badge>
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono">{fmt(a.size ?? 0, 1)}</td>
-                          <td className="px-3 py-2.5 text-right font-mono">{Math.round((a.price ?? 0) * 100)}¢</td>
-                          <td className="px-3 py-2.5 text-right font-mono">{fmtUsd(total)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="grid grid-cols-[70px_50px_minmax(0,1fr)_55px_60px_60px_85px] gap-2 px-4 py-2 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+                  <span>Time</span>
+                  <span>Type</span>
+                  <span>Market</span>
+                  <span className="text-center">Side</span>
+                  <span className="text-center">Outcome</span>
+                  <span className="text-right">Shares</span>
+                  <span className="text-right">Total</span>
+                </div>
+                {activity.map((a, i) => {
+                  const isBuy = (a.side ?? "").toUpperCase() === "BUY";
+                  const isYes = (a.outcome ?? "").toUpperCase() === "YES";
+                  const total = a.usdcSize ?? ((a.size ?? 0) * (a.price ?? 0));
+                  const typeIcon = a.type === "redeem"
+                    ? "M12 2v8m4-4-4 4-4-4M6 22h12"
+                    : a.type === "fill"
+                    ? "M5 12l5 5L20 7"
+                    : "M3 12h4l3-9 4 18 3-9h4";
+                  const sideClr = isBuy
+                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                    : "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30";
+                  return (
+                    <div key={i} className="grid grid-cols-[70px_50px_minmax(0,1fr)_55px_60px_60px_85px] gap-2 items-center px-4 py-2 hover:bg-accent/40 transition-colors border-b border-border last:border-b-0 text-xs">
+                      <span className="font-mono tabular-nums text-muted-foreground text-[11px]">
+                        {a.timestamp ? fmtDate(a.timestamp) : "—"}
+                      </span>
+                      <span className="flex items-center gap-1 text-muted-foreground">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3 shrink-0">
+                          <path d={typeIcon}/>
+                        </svg>
+                        <span className="text-[10px] uppercase tracking-wider truncate">{a.type ?? "—"}</span>
+                      </span>
+                      <span className="font-medium truncate">{a.title ?? "—"}</span>
+                      <span className="text-center">
+                        {a.side && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold tracking-wider ${sideClr}`}>
+                            {a.side}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-center text-[11px]">{a.outcome ?? "—"}</span>
+                      <span className="text-right font-mono tabular-nums">{fmt(a.size ?? 0, 1)}</span>
+                      <span className="text-right font-mono tabular-nums font-semibold">{fmtUsd(total)}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </TabsContent>
@@ -476,7 +499,7 @@ export default function PositionsPage() {
                     </div>
                     <div className="rounded-lg border p-3">
                       <p className="text-muted-foreground mb-1">Latest PnL</p>
-                      <p className={`text-lg font-semibold ${history[history.length - 1].pnl >= 0 ? "text-green-600" : "text-red-500"}`}>
+                      <p className={`text-lg font-semibold ${history[history.length - 1].pnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
                         {history[history.length - 1].pnl >= 0 ? "+" : ""}{fmtUsd(history[history.length - 1].pnl)}
                       </p>
                     </div>
@@ -510,51 +533,60 @@ export default function PositionsPage() {
 
 function PositionsTable({ positions }: { positions: Position[] }) {
   return (
-    <div className="rounded-xl border overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-muted/50">
-          <tr>
-            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Market</th>
-            <th className="px-4 py-3 font-medium text-muted-foreground">Side</th>
-            <th className="px-4 py-3 font-medium text-muted-foreground text-right">Shares</th>
-            <th className="px-4 py-3 font-medium text-muted-foreground text-right">Avg Entry</th>
-            <th className="px-4 py-3 font-medium text-muted-foreground text-right">Current</th>
-            <th className="px-4 py-3 font-medium text-muted-foreground text-right">Value</th>
-            <th className="px-4 py-3 font-medium text-muted-foreground text-right">PnL</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {positions.map((pos, i) => (
-            <tr key={i} className="hover:bg-muted/20">
-              <td className="px-4 py-3 font-medium max-w-xs">
-                <span className="line-clamp-2 leading-snug">{pos.title}</span>
-              </td>
-              <td className="px-4 py-3 text-center">
-                <Badge
-                  variant="outline"
-                  className={
-                    pos.outcome === "Yes" || pos.outcome === "YES"
-                      ? "border-green-500/40 text-green-700 bg-green-500/10"
-                      : "border-red-400/40 text-red-600 bg-red-400/10"
-                  }
-                >
-                  {pos.outcome}
-                </Badge>
-              </td>
-              <td className="px-4 py-3 text-right font-mono">{fmt(pos.size, 1)}</td>
-              <td className="px-4 py-3 text-right font-mono">{Math.round(pos.avgPrice * 100)}¢</td>
-              <td className="px-4 py-3 text-right font-mono">{Math.round(pos.currentPrice * 100)}¢</td>
-              <td className="px-4 py-3 text-right font-mono">{fmtUsd(pos.currentValue)}</td>
-              <td className={`px-4 py-3 text-right font-mono font-semibold ${pos.cashPnl >= 0 ? "text-green-600" : "text-red-500"}`}>
-                {pos.cashPnl >= 0 ? "+" : ""}{fmtUsd(pos.cashPnl)}
-                <span className="block text-xs font-normal text-muted-foreground">
-                  {pos.percentPnl >= 0 ? "+" : ""}{fmt(pos.percentPnl, 1)}%
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="grid grid-cols-[minmax(0,1fr)_60px_70px_70px_70px_85px_95px] gap-2 px-4 py-2 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+        <span>Market</span>
+        <span className="text-center">Side</span>
+        <span className="text-right">Shares</span>
+        <span className="text-right">Avg entry</span>
+        <span className="text-right">Mark</span>
+        <span className="text-right">Value</span>
+        <span className="text-right">PnL</span>
+      </div>
+      {positions.map((pos, i) => {
+        const isYes = pos.outcome === "Yes" || pos.outcome === "YES";
+        const sideClr = isYes
+          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+          : "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30";
+        const venueClr = pos.venue === "polymarket"
+          ? "text-violet-600 dark:text-violet-400"
+          : pos.venue === "kalshi"
+          ? "text-amber-600 dark:text-amber-400"
+          : "text-muted-foreground";
+        return (
+          <div key={i} className="grid grid-cols-[minmax(0,1fr)_60px_70px_70px_70px_85px_95px] gap-2 items-center px-4 py-2.5 hover:bg-accent/40 transition-colors border-b border-border last:border-b-0">
+            <div className="min-w-0">
+              <p className="text-sm font-medium leading-snug line-clamp-1">{pos.title}</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                {pos.venue && (
+                  <span className={`text-[10px] font-mono uppercase tracking-wider ${venueClr}`}>{pos.venue}</span>
+                )}
+                {pos.source_rule && (
+                  <>
+                    {pos.venue && <span className="text-muted-foreground/40 text-[10px]">·</span>}
+                    <span className="text-[10px] text-muted-foreground font-mono truncate">rule: {pos.source_rule}</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="text-center">
+              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold tracking-wider ${sideClr}`}>
+                {pos.outcome}
+              </span>
+            </div>
+            <div className="text-right font-mono tabular-nums text-sm">{fmt(pos.size, 1)}</div>
+            <div className="text-right font-mono tabular-nums text-sm text-muted-foreground">{Math.round(pos.avgPrice * 100)}¢</div>
+            <div className="text-right font-mono tabular-nums text-sm font-semibold">{Math.round(pos.currentPrice * 100)}¢</div>
+            <div className="text-right font-mono tabular-nums text-sm">{fmtUsd(pos.currentValue)}</div>
+            <div className={`text-right font-mono tabular-nums text-sm font-semibold ${pos.cashPnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+              {pos.cashPnl >= 0 ? "+" : "−"}{fmtUsd(Math.abs(pos.cashPnl))}
+              <div className="text-[10px] font-normal opacity-70">
+                {pos.percentPnl >= 0 ? "+" : ""}{fmt(pos.percentPnl, 1)}%
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

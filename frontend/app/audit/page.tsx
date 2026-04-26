@@ -1,92 +1,94 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 interface AuditRecord {
   rule_id: string;
   ts: string;
   trigger_matched: boolean;
-  conditions_passed?: string[];
   conditions_failed?: string[];
   guardrail_trips?: string[];
-  action_built?: unknown;
+  action_built?: { type: string; side?: string; size_usd?: number; price?: number } | null;
   action_result?: { status: string; [k: string]: unknown };
   [k: string]: unknown;
 }
 
+const RESULT_STYLE: Record<string, { label: string; cls: string }> = {
+  submitted:        { label: "Submitted", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30" },
+  dry_run:          { label: "Dry run",   cls: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30" },
+  blocked:          { label: "Blocked",   cls: "bg-muted text-muted-foreground border-border" },
+  pending_approval: { label: "Pending",   cls: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30" },
+  no_match:         { label: "No match",  cls: "bg-muted/50 text-muted-foreground border-border/50" },
+  guardrail:        { label: "Guardrail", cls: "bg-destructive/15 text-destructive border-destructive/30" },
+};
+
+function recordKind(r: AuditRecord): string {
+  if (!r.trigger_matched) return "no_match";
+  if (r.guardrail_trips?.length) return "guardrail";
+  return r.action_result?.status ?? "submitted";
+}
+
 function fmtTs(iso: string): string {
   try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
+    return new Date(iso).toLocaleTimeString(undefined, {
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
     });
   } catch {
     return iso;
   }
 }
 
-function statusBadge(record: AuditRecord) {
-  const result = record.action_result?.status;
-  if (record.guardrail_trips?.length) {
-    return <Badge variant="destructive" className="text-xs">Guardrail</Badge>;
-  }
-  if (result === "dry_run") {
-    return <Badge variant="secondary" className="text-xs">Dry run</Badge>;
-  }
-  if (result === "submitted") {
-    return <Badge className="text-xs bg-green-500 hover:bg-green-600">Submitted</Badge>;
-  }
-  if (result === "blocked") {
-    return <Badge variant="outline" className="text-xs">Blocked</Badge>;
-  }
-  return null;
-}
-
-function AuditRow({ record }: { record: AuditRecord }) {
-  const [expanded, setExpanded] = useState(false);
+function AuditRow({
+  record,
+  expanded,
+  onToggle,
+}: {
+  record: AuditRecord;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const kind = recordKind(record);
+  const meta = RESULT_STYLE[kind] ?? RESULT_STYLE.submitted;
+  const ab = record.action_built as { type: string; side?: string; size_usd?: number; price?: number } | null | undefined;
 
   return (
-    <div className="border rounded-lg overflow-hidden">
+    <div className="border-b border-border last:border-b-0">
       <button
-        onClick={() => setExpanded((p) => !p)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent/50 transition-colors"
+        onClick={onToggle}
+        className="w-full grid grid-cols-[80px_180px_1fr_auto_auto] gap-3 items-center px-4 py-2.5 text-left hover:bg-accent/40 transition-colors"
       >
-        {expanded ? (
-          <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-        )}
-        <span className="font-mono text-xs text-muted-foreground w-40 shrink-0">
-          {fmtTs(record.ts)}
+        <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{fmtTs(record.ts)}</span>
+        <span className="text-xs font-medium truncate">{record.rule_id}</span>
+        <span className="text-[11px] text-muted-foreground truncate">
+          {record.trigger_matched ? (
+            record.guardrail_trips?.length ? (
+              <span className="text-destructive">⛔ {record.guardrail_trips[0]}</span>
+            ) : ab ? (
+              <>
+                {ab.type.replace(/_/g, " ")}
+                {ab.side ? ` · ${ab.side}` : ""}
+                {ab.size_usd ? ` $${ab.size_usd}` : ""}
+                {ab.price ? ` @ ${(ab.price * 100).toFixed(0)}¢` : ""}
+              </>
+            ) : "matched"
+          ) : (
+            record.conditions_failed?.[0] ?? "no match"
+          )}
         </span>
-        <span className="text-sm font-medium flex-1 truncate">{record.rule_id}</span>
-        <div className="flex items-center gap-2 shrink-0">
-          {record.conditions_failed?.length ? (
-            <span className="text-xs text-muted-foreground">
-              {record.conditions_failed.length} cond failed
-            </span>
-          ) : null}
-          {statusBadge(record)}
-          <span
-            className={cn(
-              "size-2 rounded-full",
-              record.trigger_matched ? "bg-green-500" : "bg-muted-foreground/40"
-            )}
-            title={record.trigger_matched ? "Trigger matched" : "No match"}
-          />
-        </div>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium tracking-wide whitespace-nowrap ${meta.cls}`}>
+          {meta.label}
+        </span>
+        <svg
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+          className={`size-3.5 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
+        >
+          <path d="m9 18 6-6-6-6"/>
+        </svg>
       </button>
       {expanded && (
-        <div className="border-t bg-muted/30 px-4 py-3">
-          <pre className="text-xs font-mono whitespace-pre-wrap break-all text-foreground/80">
+        <div className="bg-muted/30 px-4 py-3 border-t border-border">
+          <pre className="text-[10px] font-mono whitespace-pre-wrap break-all text-foreground/75 leading-relaxed">
             {JSON.stringify(record, null, 2)}
           </pre>
         </div>
@@ -95,22 +97,13 @@ function AuditRow({ record }: { record: AuditRecord }) {
   );
 }
 
-function SkeletonRow() {
-  return (
-    <div className="border rounded-lg px-4 py-3 flex items-center gap-3">
-      <Skeleton className="size-4 rounded" />
-      <Skeleton className="h-3 w-32" />
-      <Skeleton className="h-3 flex-1" />
-      <Skeleton className="h-5 w-16 rounded-full" />
-    </div>
-  );
-}
-
 export default function AuditPage() {
-  const [records, setRecords] = useState<AuditRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [records,     setRecords]     = useState<AuditRecord[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [filter,      setFilter]      = useState("all");
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const fetchAudit = useCallback(async () => {
     setError(null);
@@ -126,38 +119,66 @@ export default function AuditPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchAudit();
-  }, [fetchAudit]);
+  useEffect(() => { fetchAudit(); }, [fetchAudit]);
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const interval = setInterval(fetchAudit, 5000);
-    return () => clearInterval(interval);
+    const id = setInterval(fetchAudit, 5000);
+    return () => clearInterval(id);
   }, [autoRefresh, fetchAudit]);
 
+  const counts = useMemo(() => ({
+    all:      records.length,
+    fired:    records.filter((r) => r.trigger_matched && recordKind(r) === "submitted").length,
+    dry_run:  records.filter((r) => recordKind(r) === "dry_run").length,
+    blocked:  records.filter((r) => r.trigger_matched && ["blocked", "guardrail"].includes(recordKind(r))).length,
+    no_match: records.filter((r) => !r.trigger_matched).length,
+  }), [records]);
+
+  const filtered = useMemo(() => records.filter((r) => {
+    const kind = recordKind(r);
+    if (filter === "fired")    return r.trigger_matched && kind === "submitted";
+    if (filter === "blocked")  return r.trigger_matched && ["blocked", "guardrail"].includes(kind);
+    if (filter === "no_match") return !r.trigger_matched;
+    if (filter === "dry_run")  return kind === "dry_run";
+    return true;
+  }), [records, filter]);
+
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-6 max-w-[1100px] mx-auto">
+      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold mb-1">Audit Feed</h1>
+          <div className="flex items-center gap-2 mb-1">
+            <h1 className="text-2xl font-semibold tracking-tight">Audit feed</h1>
+            {autoRefresh && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-bold tracking-wider flex items-center gap-1">
+                <span className="size-1 rounded-full bg-emerald-500 animate-pulse"/>
+                LIVE
+              </span>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">
-            {loading ? "Loading…" : `${records.length} record${records.length !== 1 ? "s" : ""} — newest first`}
+            {loading ? "Loading…" : `${records.length} rule evaluations · last 100 · `}
+            <span className="font-mono text-[11px]">executor/audit.jsonl</span>
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={autoRefresh ? "default" : "outline"}
-            size="sm"
-            onClick={() => setAutoRefresh((p) => !p)}
+        <button
+          onClick={() => setAutoRefresh((p) => !p)}
+          className={`h-8 px-3 rounded-md border text-xs font-medium flex items-center gap-1.5 transition-colors ${
+            autoRefresh
+              ? "bg-foreground text-background border-foreground"
+              : "bg-background text-muted-foreground border-border hover:text-foreground"
+          }`}
+        >
+          <svg
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            className={`size-3.5 ${autoRefresh ? "animate-spin" : ""}`}
+            style={{ animationDuration: "3s" }}
           >
-            <RefreshCw className={cn("size-3.5", autoRefresh && "animate-spin")} />
-            {autoRefresh ? "Live" : "Paused"}
-          </Button>
-          <Button variant="outline" size="sm" onClick={fetchAudit}>
-            Refresh
-          </Button>
-        </div>
+            <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>
+          </svg>
+          {autoRefresh ? "Live" : "Paused"}
+        </button>
       </div>
 
       {error && (
@@ -166,20 +187,64 @@ export default function AuditPage() {
         </div>
       )}
 
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-5">
+        {[
+          { id: "all",      label: "All",       value: counts.all,      cls: "" },
+          { id: "fired",    label: "Submitted", value: counts.fired,    cls: "text-emerald-600 dark:text-emerald-400" },
+          { id: "dry_run",  label: "Dry run",   value: counts.dry_run,  cls: "text-blue-600 dark:text-blue-400" },
+          { id: "blocked",  label: "Blocked",   value: counts.blocked,  cls: "text-destructive" },
+          { id: "no_match", label: "No match",  value: counts.no_match, cls: "text-muted-foreground" },
+        ].map((s) => (
+          <button
+            key={s.id}
+            onClick={() => { setFilter(s.id); setExpandedIdx(null); }}
+            className={`rounded-xl border p-3 text-left transition-colors ${
+              filter === s.id ? "border-foreground bg-card" : "border-border bg-card hover:border-foreground/30"
+            }`}
+          >
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{s.label}</div>
+            <div className={`text-xl font-semibold font-mono mt-0.5 tabular-nums ${s.cls}`}>{s.value}</div>
+          </button>
+        ))}
+      </div>
+
       {loading ? (
-        <div className="flex flex-col gap-2">
-          {Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)}
-        </div>
-      ) : records.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground text-sm">
-          No audit records yet. Executor writes to{" "}
-          <code className="font-mono text-xs">executor/audit.jsonl</code> when rules fire.
+        <div className="flex flex-col gap-1">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="rounded-lg border px-4 py-3 grid grid-cols-[80px_180px_1fr_auto] gap-3 items-center">
+              <Skeleton className="h-3 w-14"/>
+              <Skeleton className="h-3 w-28"/>
+              <Skeleton className="h-3 w-full"/>
+              <Skeleton className="h-5 w-16 rounded"/>
+            </div>
+          ))}
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          {records.map((r, i) => (
-            <AuditRow key={`${r.rule_id}-${r.ts}-${i}`} record={r} />
-          ))}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="grid grid-cols-[80px_180px_1fr_auto_auto] gap-3 items-center px-4 py-2 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+            <span>Time</span>
+            <span>Rule</span>
+            <span>Detail</span>
+            <span>Result</span>
+            <span className="w-3.5"/>
+          </div>
+          {filtered.length === 0 ? (
+            <div className="p-12 text-center text-sm text-muted-foreground">
+              {records.length === 0
+                ? <>No audit records yet. Executor writes to <code className="font-mono text-xs">executor/audit.jsonl</code> when rules fire.</>
+                : "No records match this filter."}
+            </div>
+          ) : (
+            filtered.map((r, i) => (
+              <AuditRow
+                key={`${r.rule_id}-${r.ts}-${i}`}
+                record={r}
+                expanded={expandedIdx === i}
+                onToggle={() => setExpandedIdx(expandedIdx === i ? null : i)}
+              />
+            ))
+          )}
         </div>
       )}
     </div>
