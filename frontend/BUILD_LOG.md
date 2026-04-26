@@ -1013,3 +1013,35 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A23** — to be defined. Candidates: per-pair alert threshold (notify only when a starred pair crosses a custom threshold); Kalshi position tracking; AI score visible in table (without opening drawer) using the session cache.
+
+---
+
+## 2026-04-26T21:00:00Z — milestone A23: AI score column in table (lazy cache)
+
+### What I did
+- Added `aiScoreVersion: number` state + `onAiScoreReady` useCallback (increments version) to `ArbPage`
+- Added `onAiScoreReady?: () => void` prop to `ArbDetail`; called after `aiScoreCache.current.set(opp.id, d)` when a score successfully arrives from Haiku
+- Updated `TableView` to accept `aiScoreCache` and `aiScoreVersion` props
+- Added `hasAiScores = (aiScoreVersion ?? 0) > 0` guard — "AI" column header and cells are only rendered when at least one score exists in the cache
+- AI cell renders `<MatchBadge grade={...}/>` when `aiScoreCache.current.get(opp.id)` is set, else `—` (muted)
+- Column populates lazily as user opens pairs in the drawer; no batch calls, no new API routes
+
+### Tradeoffs / shortcuts
+- Column stays hidden without `ANTHROPIC_API_KEY` (correct — no scores ever arrive, so `onAiScoreReady` is never called)
+- Cache is session-only; column resets on page reload (same as before A23)
+- `aiScoreVersion` triggers a full `ArbPage` re-render on each new score; acceptable at ≤25 pairs per scan
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` — 35/35 pass
+- Browser: ran scan (11 results after High match filter) → Table view — no "AI" header (correct, no key set)
+- Opened first row drawer → AI Similarity card shows "Set ANTHROPIC_API_KEY" fallback, no console errors
+- "AI" column correctly absent (would appear only after key is set and first pair is scored)
+
+### Follow-ups for future runs
+- Set `ANTHROPIC_API_KEY` in `frontend/.env.local` to test live column population
+- Per-pair alert threshold still outstanding
+- Kalshi position tracking still outstanding
+
+### Next milestone to pick up
+**A24** — to be defined. Candidates: per-pair alert threshold for starred pairs; Kalshi position tracking; match-score sort column ("Sort by AI").

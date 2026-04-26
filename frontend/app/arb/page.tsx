@@ -320,10 +320,12 @@ function Sparkline({ data, w = 64, h = 18, className = "" }: { data: number[]; w
 
 // ── Table view ─────────────────────────────────────────────────────────────
 
-function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, onStar }: {
+function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, onStar, aiScoreCache, aiScoreVersion }: {
   opps: ScanOpp[]; onSelect: (o: ScanOpp) => void;
   sortBy: SortBy; setSortBy: (s: SortBy) => void; flashIds: Set<string>;
   watchlistIds: string[]; onStar: (id: string) => void;
+  aiScoreCache?: React.MutableRefObject<Map<string, AiMatch>>;
+  aiScoreVersion?: number;
 }) {
   const sorted = [...opps].sort((a, b) =>
     sortBy === "edge"  ? b.netEdgePct - a.netEdgePct :
@@ -332,10 +334,13 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
     new Date(a.closes).getTime() - new Date(b.closes).getTime()
   );
 
+  const hasAiScores = (aiScoreVersion ?? 0) > 0;
+
   const cols: { key: string; label: string; right?: boolean; sort?: SortBy }[] = [
     { key: "star",   label: "" },
     { key: "edge",   label: "Edge",        sort: "edge" },
     { key: "match",  label: "Match",       sort: "match" as SortBy },
+    ...(hasAiScores ? [{ key: "ai", label: "AI" }] : []),
     { key: "market", label: "Market" },
     { key: "poly",   label: "Polymarket",  right: true },
     { key: "kalshi", label: "Kalshi",      right: true },
@@ -372,6 +377,16 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
                   </td>
                   <td className="px-3 py-2.5"><EdgePill pct={opp.netEdgePct}/></td>
                   <td className="px-3 py-2.5"><MatchBadge grade={opp.matchQuality.grade}/></td>
+                  {hasAiScores && (
+                    <td className="px-3 py-2.5">
+                      {(() => {
+                        const s = aiScoreCache?.current?.get(opp.id);
+                        return s
+                          ? <MatchBadge grade={s.grade}/>
+                          : <span className="text-muted-foreground/30 text-xs font-mono">—</span>;
+                      })()}
+                    </td>
+                  )}
                   <td className="px-3 py-2.5 max-w-xs">
                     <div className="flex items-center gap-2 min-w-0 mb-0.5">
                       <CategoryBadge cat={opp.category}/>
@@ -618,9 +633,10 @@ interface AiMatch {
   usedResolution?: boolean;
 }
 
-function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
+function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreReady }: {
   opp: ScanOpp; onClose: () => void; isWatched: boolean; onStar: () => void;
   aiScoreCache: React.MutableRefObject<Map<string, AiMatch>>;
+  onAiScoreReady?: () => void;
 }) {
   const router = useRouter();
   const [capital,      setCapital]     = useState(1000);
@@ -706,6 +722,7 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
           else {
             setAiMatch(d as AiMatch);
             aiScoreCache.current.set(opp.id, d as AiMatch);
+            onAiScoreReady?.();
           }
         } catch {
           if (!cancelled) setAiMatchError("Network error");
@@ -1411,6 +1428,8 @@ export default function ArbPage() {
   const autoRunRef       = useRef<() => void>(() => {});
   const pendingPairRef   = useRef<string | null>(null);
   const aiScoreCacheRef  = useRef<Map<string, AiMatch>>(new Map());
+  const [aiScoreVersion, setAiScoreVersion] = useState(0);
+  const onAiScoreReady = useCallback(() => setAiScoreVersion(v => v + 1), []);
 
   // Watchlist
   const [watchlistIds,  setWatchlistIds]  = usePref<string[]>("arb:watchlist", []);
@@ -1908,7 +1927,7 @@ export default function ArbPage() {
         )}
         {!scanning && filtered.length > 0 && (
           <>
-            {view === "table"  && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
+            {view === "table"  && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion}/>}
             {view === "cards"  && <CardView  opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
             {view === "ticker" && <TickerView opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
             <p className="text-[10px] text-muted-foreground text-center mt-6 font-mono">
@@ -1918,7 +1937,7 @@ export default function ArbPage() {
         )}
       </div>
 
-      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)} aiScoreCache={aiScoreCacheRef}/>}
+      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)} aiScoreCache={aiScoreCacheRef} onAiScoreReady={onAiScoreReady}/>}
     </div>
   );
 }
