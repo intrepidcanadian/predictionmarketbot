@@ -35,12 +35,21 @@ interface HistoryEntry {
 interface PolyMarket {
   id: string; condition_id: string; question: string; slug: string; token_id: string;
   yes_price: number; no_price: number; volume: number; liquidity: number; active: boolean;
+  end_date?: string;
 }
 
 interface KalshiMarket {
   ticker: string; title: string;
   yes_ask: number; yes_bid: number; no_ask: number; no_bid: number;
   volume: number; liquidity: number; close_time: string; category: string;
+}
+
+interface MatchQuality {
+  keyword: number;
+  dateProx: number;
+  combined: number;
+  grade: "H" | "M" | "L";
+  polyCloses?: string;
 }
 
 interface ScanOpp {
@@ -57,12 +66,13 @@ interface ScanOpp {
   closes: string;
   resolutionMatch: "exact" | "fuzzy";
   confidence: number;
+  matchQuality: MatchQuality;
   direction: "buy_poly_sell_kalshi" | "buy_kalshi_sell_poly";
   history: number[];
 }
 
 type ViewMode = "table" | "cards" | "ticker";
-type SortBy   = "edge" | "size" | "closes";
+type SortBy   = "edge" | "size" | "closes" | "match";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -92,6 +102,25 @@ function keywordScore(a: string, b: string): number {
   return hits / Math.max(wa.size, wb.size, 1);
 }
 
+function dateProxScore(a?: string, b?: string): number {
+  if (!a || !b) return 0;
+  const da = new Date(a).getTime(), db = new Date(b).getTime();
+  if (isNaN(da) || isNaN(db)) return 0;
+  const days = Math.abs(da - db) / 86_400_000;
+  if (days <= 1)  return 1.0;
+  if (days <= 7)  return 0.8;
+  if (days <= 30) return 0.5;
+  if (days <= 90) return 0.2;
+  return 0.0;
+}
+
+function computeMatchQuality(kwScore: number, polyCloses?: string, kalshiCloses?: string): MatchQuality {
+  const dp = dateProxScore(polyCloses, kalshiCloses);
+  const combined = dp > 0 ? 0.6 * kwScore + 0.4 * dp : kwScore;
+  const grade: MatchQuality["grade"] = combined >= 0.5 ? "H" : combined >= 0.25 ? "M" : "L";
+  return { keyword: kwScore, dateProx: dp, combined, grade, polyCloses };
+}
+
 function syntheticHistory(seed: number): number[] {
   const pts: number[] = [];
   let v = seed;
@@ -108,6 +137,7 @@ function toScanOpp(poly: PolyMarket, kalshi: KalshiMarket, score: number): ScanO
   const polyPrice   = buyPoly ? poly.yes_price  : poly.no_price;
   const kalshiPrice = buyPoly ? kalshi.no_ask    : kalshi.yes_ask;
   const netEdgePct  = parseFloat((best_net * 100).toFixed(2));
+  const mq = computeMatchQuality(score, poly.end_date, kalshi.close_time);
   return {
     id: `${poly.id}-${kalshi.ticker}`,
     condition_id: poly.condition_id,
@@ -120,8 +150,9 @@ function toScanOpp(poly: PolyMarket, kalshi: KalshiMarket, score: number): ScanO
     netEdgePct,
     capitalCap: Math.max(100, Math.round(Math.min(poly.liquidity, kalshi.liquidity) * 0.3 / 100) * 100),
     closes: kalshi.close_time || new Date(Date.now() + 90 * 86400000).toISOString(),
-    resolutionMatch: score > 0.4 ? "exact" : "fuzzy",
-    confidence: parseFloat(Math.min(0.99, 0.6 + score * 0.39).toFixed(2)),
+    resolutionMatch: mq.grade === "H" ? "exact" : "fuzzy",
+    confidence: parseFloat(Math.min(0.99, 0.5 + mq.combined * 0.49).toFixed(2)),
+    matchQuality: mq,
     direction,
     history: syntheticHistory(netEdgePct),
   };
@@ -195,6 +226,18 @@ function CategoryBadge({ cat }: { cat: string }) {
   );
 }
 
+function MatchBadge({ grade }: { grade: "H" | "M" | "L" }) {
+  const s = grade === "H" ? "bg-emerald-500/15 text-emerald-700 ring-emerald-500/30"
+          : grade === "M" ? "bg-amber-500/15 text-amber-700 ring-amber-500/30"
+          : "bg-muted text-muted-foreground ring-border";
+  const label = grade === "H" ? "High" : grade === "M" ? "Med" : "Low";
+  return (
+    <span className={`inline-flex items-center font-semibold rounded ring-1 text-[9px] px-1.5 py-0.5 tabular-nums tracking-wide ${s}`}>
+      {label}
+    </span>
+  );
+}
+
 function VenueChip({ venue, size = "sm" }: { venue: "poly" | "kalshi"; size?: "sm" | "md" }) {
   const c = venue === "poly" ? { bg: "bg-[#1652f0]", fg: "text-white", l: "P" } : { bg: "bg-[#00d090]", fg: "text-black", l: "K" };
   return (
@@ -223,13 +266,15 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds }: {
   sortBy: SortBy; setSortBy: (s: SortBy) => void; flashIds: Set<string>;
 }) {
   const sorted = [...opps].sort((a, b) =>
-    sortBy === "edge" ? b.netEdgePct - a.netEdgePct :
-    sortBy === "size" ? b.capitalCap - a.capitalCap :
+    sortBy === "edge"  ? b.netEdgePct - a.netEdgePct :
+    sortBy === "size"  ? b.capitalCap - a.capitalCap :
+    sortBy === "match" ? b.matchQuality.combined - a.matchQuality.combined :
     new Date(a.closes).getTime() - new Date(b.closes).getTime()
   );
 
   const cols: { key: string; label: string; right?: boolean; sort?: SortBy }[] = [
     { key: "edge",   label: "Edge",        sort: "edge" },
+    { key: "match",  label: "Match",       sort: "match" as SortBy },
     { key: "market", label: "Market" },
     { key: "poly",   label: "Polymarket",  right: true },
     { key: "kalshi", label: "Kalshi",      right: true },
@@ -262,6 +307,7 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds }: {
                 <tr key={opp.id} onClick={() => onSelect(opp)}
                     className={`hover:bg-muted/30 cursor-pointer transition-colors ${flashIds.has(opp.id) ? "bg-emerald-500/10" : ""}`}>
                   <td className="px-3 py-2.5"><EdgePill pct={opp.netEdgePct}/></td>
+                  <td className="px-3 py-2.5"><MatchBadge grade={opp.matchQuality.grade}/></td>
                   <td className="px-3 py-2.5 max-w-xs">
                     <div className="flex items-center gap-2 min-w-0">
                       <CategoryBadge cat={opp.category}/>
@@ -788,19 +834,41 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
             </div>
           </div>
 
-          {/* Resolution */}
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+          {/* Resolution risk + match quality */}
+          <div className={`rounded-xl border p-4 ${opp.matchQuality.grade === "H" ? "border-emerald-500/30 bg-emerald-500/5" : opp.matchQuality.grade === "M" ? "border-amber-500/30 bg-amber-500/5" : "border-rose-500/20 bg-rose-500/5"}`}>
             <div className="flex items-start gap-2">
-              <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0"/>
-              <div className="space-y-1.5">
-                <div className="text-xs font-semibold text-amber-900">Resolution risk</div>
-                <div className="text-xs text-amber-900/80 space-y-1">
-                  {opp.resolutionMatch === "exact"
-                    ? <p>High keyword overlap — criteria likely match. Confidence: <span className="font-mono font-semibold">{(opp.confidence * 100).toFixed(0)}%</span></p>
-                    : <p>Coarse keyword match — verify identical resolution criteria before trading. Confidence: <span className="font-mono font-semibold">{(opp.confidence * 100).toFixed(0)}%</span></p>
-                  }
-                  <p>Capital cap <span className="font-mono">{fmtUsd(opp.capitalCap)}</span> estimated from 30% of min liquidity.</p>
+              <AlertTriangle className={`size-4 mt-0.5 shrink-0 ${opp.matchQuality.grade === "H" ? "text-emerald-600" : opp.matchQuality.grade === "M" ? "text-amber-600" : "text-rose-500"}`}/>
+              <div className="flex-1 space-y-2.5">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-semibold ${opp.matchQuality.grade === "H" ? "text-emerald-900" : opp.matchQuality.grade === "M" ? "text-amber-900" : "text-rose-900"}`}>
+                    Match quality
+                  </span>
+                  <MatchBadge grade={opp.matchQuality.grade}/>
                 </div>
+                {/* Score breakdown */}
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: "Keyword overlap", val: opp.matchQuality.keyword, hint: `${(opp.matchQuality.keyword * 100).toFixed(0)}%` },
+                    { label: "Date proximity",  val: opp.matchQuality.dateProx, hint: opp.matchQuality.dateProx === 0 ? (opp.matchQuality.polyCloses ? "far apart" : "no poly date") : `${(opp.matchQuality.dateProx * 100).toFixed(0)}%` },
+                    { label: "Combined score",  val: opp.matchQuality.combined, hint: `${(opp.matchQuality.combined * 100).toFixed(0)}%` },
+                  ].map(({ label, val, hint }) => (
+                    <div key={label} className="rounded-md bg-background/60 border border-border/60 p-2">
+                      <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">{label}</div>
+                      <div className="h-1.5 rounded-full bg-border overflow-hidden mb-1">
+                        <div className="h-full rounded-full bg-foreground/40 transition-all" style={{ width: `${Math.round(val * 100)}%` }}/>
+                      </div>
+                      <div className="text-[10px] font-mono font-semibold">{hint}</div>
+                    </div>
+                  ))}
+                </div>
+                <p className={`text-[11px] leading-relaxed ${opp.matchQuality.grade === "H" ? "text-emerald-900/80" : opp.matchQuality.grade === "M" ? "text-amber-900/80" : "text-rose-900/80"}`}>
+                  {opp.matchQuality.grade === "H"
+                    ? "Strong keyword + date match — criteria likely identical."
+                    : opp.matchQuality.grade === "M"
+                    ? "Moderate match — verify resolution criteria before trading."
+                    : "Weak match — likely a false positive from keyword overlap. Check resolution text carefully."}
+                  {" "}Cap <span className="font-mono font-semibold">{fmtUsd(opp.capitalCap)}</span> = 30% of min liquidity.
+                </p>
               </div>
             </div>
           </div>
@@ -1031,7 +1099,7 @@ export default function ArbPage() {
           if (allPoly.find(x => x.id === String(m.id))) return;
           const prices = Array.isArray(m.outcomePrices) ? m.outcomePrices.map(Number) : [0.5, 0.5];
           const tokenIds = m.clobTokenIds as string[] | null;
-          allPoly.push({ id: String(m.id ?? ""), condition_id: String(m.conditionId ?? ""), question: String(m.question ?? ""), slug: String(m.slug ?? ""), token_id: tokenIds?.[0] ?? "", yes_price: prices[0] ?? 0.5, no_price: prices[1] ?? 0.5, volume: Number(m.volume ?? 0), liquidity: Number(m.liquidity ?? 0), active: Boolean(m.active) });
+          allPoly.push({ id: String(m.id ?? ""), condition_id: String(m.conditionId ?? ""), question: String(m.question ?? ""), slug: String(m.slug ?? ""), token_id: tokenIds?.[0] ?? "", yes_price: prices[0] ?? 0.5, no_price: prices[1] ?? 0.5, volume: Number(m.volume ?? 0), liquidity: Number(m.liquidity ?? 0), active: Boolean(m.active), end_date: m.endDate ? String(m.endDate) : undefined });
         });
         const krMarkets: KalshiMarket[] = Array.isArray(kr) ? kr : (kr.markets ?? []);
         if (!Array.isArray(kr) && kr.meta?.illiquid_filtered) totalIlliquid += kr.meta.illiquid_filtered;

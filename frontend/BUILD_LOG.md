@@ -495,3 +495,40 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A8** — to be defined. Candidates: pair match quality scoring (date proximity + title similarity), Kalshi position tracking, or JSONL history pruning (keep last N entries per pair).
+
+---
+
+## 2026-04-26T06:30:00Z — milestone A8: Pair match quality scoring
+
+### What I did
+- Added `dateProxScore(a, b)` helper: maps absolute date diff to 0–1 score (≤1d→1.0, ≤7d→0.8, ≤30d→0.5, ≤90d→0.2, >90d→0.0)
+- Added `computeMatchQuality(kwScore, polyCloses, kalshiCloses)`: combines keyword overlap (60%) + date proximity (40%) into a `combined` score; grades H (≥0.5) / M (≥0.25) / L (otherwise); returns `MatchQuality` struct with all sub-scores
+- Extended `PolyMarket` interface: added `end_date?: string`; captured `m.endDate` from `/api/markets` response in `runScan` (it was already returned by the Gamma proxy but not used)
+- Added `matchQuality: MatchQuality` field to `ScanOpp`; updated `toScanOpp` to compute it; updated `resolutionMatch` and `confidence` to derive from `matchQuality.combined` rather than raw keyword score
+- Added `MatchBadge` component: H=emerald, M=amber, L=muted with ring
+- Added `SortBy = "match"` and "Match ↓" column to `TableView` (placed between Edge and Market columns, sortable)
+- Replaced the old amber "Resolution risk" box in `ArbDetail` with a dynamic-color "Match quality" card showing:
+  - Grade badge (H/M/L)
+  - Three mini cards with progress bars: Keyword Overlap %, Date Proximity (% or "far apart" / "no poly date"), Combined Score %
+  - Contextual text: H = "strong match", M = "verify before trading", L = "likely false positive"
+
+### Tradeoffs / shortcuts
+- Date proximity weight is 40% only when a poly end date exists; if `end_date` is missing the combined score equals the keyword score alone (not penalised — just less signal)
+- `end_date` comes from Gamma's `endDate` field which is already returned by `/api/markets`; no new API calls needed
+- "far apart" label shown when `dateProx === 0` but `polyCloses` is present (dates exist but >90 days apart); "no poly date" shown when `polyCloses` is undefined
+- H/M/L thresholds (0.5, 0.25) are empirically chosen; most keyword-only false positives score M/L while true matches with aligned dates score H
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: ran scan → "Match" column visible with Low/Med badges in table
+- Clicked row 2 (Med match): detail panel shows match quality card with amber border, "Med" badge, Keyword Overlap 29%, Date Proximity "far apart", Combined 29%, warning text "Moderate match — verify resolution criteria before trading"
+- No console errors
+
+### Follow-ups for future runs
+- Could add a "Min match" filter pill (Low/Med/High threshold) to the filter row so users can hide obvious false positives
+- Could use LLM similarity scoring for display (not in trade path) to improve keyword matching accuracy
+- JSONL history is unbounded — future run should prune entries older than N days or keep last N per pair
+
+### Next milestone to pick up
+**A9** — to be defined. Candidates: Min-match filter (H/M/L threshold pill in filter row to hide false positives), JSONL history pruning, or Kalshi position tracking.
