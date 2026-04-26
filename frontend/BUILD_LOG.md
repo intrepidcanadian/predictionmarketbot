@@ -531,4 +531,34 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - JSONL history is unbounded — future run should prune entries older than N days or keep last N per pair
 
 ### Next milestone to pick up
-**A9** — to be defined. Candidates: Min-match filter (H/M/L threshold pill in filter row to hide false positives), JSONL history pruning, or Kalshi position tracking.
+**A9** — Min-match filter + JSONL history pruning.
+
+---
+
+## 2026-04-26T07:30:00Z — milestone A9: Min-match filter + JSONL history pruning
+
+### What I did
+- Added `minMatch: "all" | "M" | "H"` state (default: `"all"`) to `ArbPage`
+- Extended `filtered` useMemo: `minMatch === "M"` hides grade-L pairs; `minMatch === "H"` shows only grade-H pairs
+- Added "Match: All / Med+ / High" pill group to the filter row (between category pills and Min edge slider); active pill uses grade-appropriate amber/emerald color when non-default selected
+- Updated `app/api/arb/history/route.ts` POST handler: after appending, if total entry count > `MAX_TOTAL_ENTRIES` (500), rewrites file keeping the newest 500 entries
+
+### Tradeoffs / shortcuts
+- "Med+" shows both M and H (i.e., hides only L); "High" shows only H — this matches the UX intent of progressively tightening the signal-to-noise filter
+- Pruning reads the full file after each append (not ideal for huge files, but at 500-entry cap the read is trivial for a localhost tool)
+- `MAX_TOTAL_ENTRIES = 500` is a global cap across all pairs, not per-pair — oldest entries are dropped first regardless of pair_id
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: ran scan → filter row shows "Match: All | Med+ | High" pills
+- Clicked "High" → table reduced from 20 results to 1 (the single High-grade pair), KPI updated to "1 of 20 total"
+- Clicked back to "All" → all 20 results restored
+- No console errors
+
+### Follow-ups for future runs
+- Could add an "A10" milestone: persist `minMatch` preference in localStorage so it survives page reloads
+- JSONL pruning currently global (not per-pair) — could add per-pair cap if a single pair dominates the history file during long auto-scan sessions
+
+### Next milestone to pick up
+**A10** — to be defined. Candidates: persist filter preferences (minMatch, minEdge) in localStorage; Kalshi position tracking; JSONL per-pair cap.

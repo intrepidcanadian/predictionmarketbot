@@ -1064,6 +1064,7 @@ export default function ArbPage() {
   const [minEdge,    setMinEdge]    = useState(0);
   const [cat,        setCat]        = useState("all");
   const [selected,   setSelected]   = useState<ScanOpp | null>(null);
+  const [minMatch,   setMinMatch]   = useState<"all" | "M" | "H">("all");
   const [flashIds,   setFlashIds]   = useState<Set<string>>(new Set());
   const [kalshiCats,   setKalshiCats]   = useState<Set<string>>(new Set(KALSHI_CATS));
   const [kalshiMeta,   setKalshiMeta]   = useState<{ count: number; illiquid: number } | null>(null);
@@ -1192,8 +1193,9 @@ export default function ArbPage() {
     opps.filter(o =>
       o.netEdgePct >= minEdge &&
       (cat === "all" || o.category === cat) &&
+      (minMatch === "all" || (minMatch === "M" ? o.matchQuality.grade !== "L" : o.matchQuality.grade === "H")) &&
       (!search || o.question.toLowerCase().includes(search.toLowerCase()))
-    ), [opps, minEdge, cat, search]);
+    ), [opps, minEdge, cat, minMatch, search]);
 
   const totalEdge = filtered.reduce((s, o) => s + o.capitalCap * o.netEdgePct / 100, 0);
   const avgEdge   = filtered.length ? filtered.reduce((s, o) => s + o.netEdgePct, 0) / filtered.length : 0;
@@ -1302,6 +1304,15 @@ export default function ArbPage() {
                 <button key={c} onClick={() => setCat(c)}
                         className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${cat === c ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
                   {c === "all" ? "All" : c}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground font-medium mr-0.5">Match:</span>
+              {([["all", "All", ""], ["M", "Med+", "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"], ["H", "High", "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"]] as const).map(([v, label, active]) => (
+                <button key={v} onClick={() => setMinMatch(v)}
+                        className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${minMatch === v ? (active || "bg-foreground text-background border-foreground") : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
+                  {label}
                 </button>
               ))}
             </div>

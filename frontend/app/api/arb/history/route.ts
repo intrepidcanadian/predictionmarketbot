@@ -4,6 +4,7 @@ import path from "path";
 
 const HISTORY_FILE = path.join(process.cwd(), "arb-history.jsonl");
 const MAX_ENTRIES_PER_PAIR = 100;
+const MAX_TOTAL_ENTRIES = 500;
 
 export interface HistoryEntry {
   ts: string;
@@ -46,5 +47,13 @@ export async function POST(req: NextRequest) {
   }
   const lines = body.map(e => JSON.stringify(e)).join("\n") + "\n";
   await fs.appendFile(HISTORY_FILE, lines, "utf-8");
+
+  // Prune if total exceeds cap — keep newest MAX_TOTAL_ENTRIES entries
+  const all = await readAll();
+  if (all.length > MAX_TOTAL_ENTRIES) {
+    const pruned = all.slice(all.length - MAX_TOTAL_ENTRIES);
+    await fs.writeFile(HISTORY_FILE, pruned.map(e => JSON.stringify(e)).join("\n") + "\n", "utf-8");
+  }
+
   return NextResponse.json({ appended: body.length });
 }
