@@ -881,3 +881,37 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A18** — to be defined. Candidates: cache AI scores per session (avoid re-fetching same pair); pass resolution text to improve scoring accuracy; Kalshi position tracking.
+
+---
+
+## 2026-04-26T17:30:00Z — milestone A19: Resolution-aware AI scoring
+
+### What I did
+- Updated `app/api/arb/match-score/route.ts`: accepts optional `poly_resolution` and `kalshi_resolution` string params in the POST body; when either is present, the user message sent to Haiku includes the full resolution snippet in addition to titles; returns `usedResolution: boolean` in the response so the client can display the source label; updated system prompt to mention resolution text is the primary signal when present
+- Replaced the two separate `useEffect`s in `ArbDetail` (one for resolution, one for AI score) with a single combined sequential effect: resolution is fetched first, then match-score is called with the first 400 chars of each side's resolution text when available; this ensures Haiku scores on what the markets actually resolve on (not just keyword-matched titles)
+- AI cache (`aiScoreCache` Map ref in `ArbPage`) checked at the top of the combined effect — if cached, resolution is still fetched for display but the API call is skipped
+- `cancelled` flag pattern prevents stale state updates on rapid pair switching (effect cleanup sets `cancelled = true`)
+- Added `usedResolution?: boolean` to `AiMatch` interface
+- Added "· resolution text" (emerald) / "· titles only" (amber) source label next to "claude-haiku · display only" in the AI Similarity card header — only visible when `aiMatch` is loaded
+
+### Tradeoffs / shortcuts
+- Resolution fetch is now on the critical path for AI scoring (sequential, not parallel). The resolution route has a 5-minute ISR cache so repeat opens of the same pair are fast (50–200ms). For brand-new pairs, latency is resolution (~300ms) + Haiku (~600ms) = ~900ms vs. the old ~600ms. Acceptable for a display-only feature.
+- `poly_resolution` is capped at 400 chars (first 400 of `description`). For longer descriptions this may miss the specific resolution clause, but 400 chars covers the lead sentence which is usually the key criterion.
+- `kalshi_resolution` joins `rules_primary` and `rules_secondary` before slicing to 400 chars — secondary rules are often blank, so the combined text is usually just `rules_primary`.
+- "· resolution text" / "· titles only" labels only appear when `aiMatch` is set (i.e. after a successful API response). No label shows in the no-API-key graceful-fallback state.
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: `/arb` — ran scan → clicked first row → resolution panel loaded with full Polymarket + Kalshi text
+- Network log confirmed sequential pattern: `GET /api/arb/resolution → 200 OK` fires before `POST /api/arb/match-score → 503 Service Unavailable` (503 expected — no ANTHROPIC_API_KEY set)
+- `ERR_ABORTED` on stale resolution requests confirms `cancelled = true` cleanup is working on rapid re-opens
+- Screenshot: AI Similarity card shows "claude-haiku · display only" with graceful "Set ANTHROPIC_API_KEY" fallback message; no new console errors
+
+### Follow-ups for future runs
+- Fix pre-existing CardView SSR `button > button` hydration warning (change card outer element from `<button>` to `<div role="button">`)
+- With API key set: verify "· resolution text" emerald label appears in the AI card header
+- Could pass first 400 chars to both the match-score POST AND the existing `AiMatch` cache key (so cache hit is still resolution-aware, not a stale title-only score from a pre-A19 session — session-only cache means this is a non-issue in practice)
+
+### Next milestone to pick up
+**A20** — to be defined. Candidates: fix CardView SSR `button > button` warning (change card outer `<button>` to `<div role="button">`); Kalshi position tracking; per-pair resolution diff highlighter (show which sentences differ between Poly and Kalshi rules).
