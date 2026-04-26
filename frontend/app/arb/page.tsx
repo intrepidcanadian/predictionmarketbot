@@ -926,7 +926,7 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
             <div className="flex items-center justify-between mb-3">
               <div>
                 <div className="text-[10px] uppercase tracking-wider opacity-60">Atomic two-leg execution</div>
-                <div className="text-sm mt-0.5 opacity-80">Polymarket leg executes live via CLOB.</div>
+                <div className="text-sm mt-0.5 opacity-80">Both orders placed simultaneously. Either both fill or both cancel.</div>
               </div>
               <span className="text-xl font-mono font-semibold">{fmtUsd(netProfit)}</span>
             </div>

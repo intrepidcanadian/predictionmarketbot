@@ -19,14 +19,14 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { href: "/markets",      label: "Markets",      icon: TrendingUp },
-  { href: "/arb",          label: "Arb Scanner",  icon: ArrowRightLeft },
-  { href: "/rules",        label: "Rules",        icon: BookOpen },
-  { href: "/audit",        label: "Audit",        icon: ScrollText },
-  { href: "/approvals",    label: "Approvals",    icon: CheckSquare },
-  { href: "/positions",    label: "Positions",    icon: BarChart3 },
-  { href: "/signals",      label: "Signals",      icon: Settings2 },
-  { href: "/architecture", label: "Architecture", icon: Network },
+  { href: "/markets",      label: "Markets",      icon: TrendingUp,    isNew: false },
+  { href: "/arb",          label: "Arb Scanner",  icon: ArrowRightLeft, isNew: true },
+  { href: "/rules",        label: "Rules",        icon: BookOpen,      isNew: false },
+  { href: "/audit",        label: "Audit",        icon: ScrollText,    isNew: false },
+  { href: "/approvals",    label: "Approvals",    icon: CheckSquare,   isNew: false },
+  { href: "/positions",    label: "Positions",    icon: BarChart3,     isNew: false },
+  { href: "/signals",      label: "Signals",      icon: Settings2,     isNew: false },
+  { href: "/architecture", label: "Architecture", icon: Network,       isNew: false },
 ];
 
 export function NavSidebar() {
@@ -56,7 +56,7 @@ export function NavSidebar() {
       </div>
 
       <nav className="flex flex-col gap-0.5">
-        {navItems.map(({ href, label, icon: Icon }) => {
+        {navItems.map(({ href, label, icon: Icon, isNew }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Link
@@ -70,7 +70,15 @@ export function NavSidebar() {
               )}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              {label}
+              <span className="flex-1">{label}</span>
+              {isNew && (
+                <span className={cn(
+                  "text-[9px] px-1.5 py-0.5 rounded font-semibold tracking-wider",
+                  active
+                    ? "bg-primary-foreground/20 text-primary-foreground"
+                    : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                )}>NEW</span>
+              )}
             </Link>
           );
         })}
