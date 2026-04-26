@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History, Link2, Check, Star, X, ExternalLink, Download, Loader2, Sparkles } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, ChevronDown, Bell, History, Link2, Check, Star, X, ExternalLink, Download, Loader2, Sparkles } from "lucide-react";
 
 // ── localStorage preference hook ───────────────────────────────────────────
 
@@ -561,6 +561,26 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
 
   const hasAiScores = (aiScoreVersion ?? 0) > 0;
 
+  // ── Inline quick-peek state ───────────────────────────────────────────────
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandLoading, setExpandLoading] = useState(false);
+  const expandResData = useRef<Map<string, ResolutionData | null>>(new Map());
+  const [expandResVersion, setExpandResVersion] = useState(0);
+
+  function handleExpandToggle(e: React.MouseEvent, opp: ScanOpp) {
+    e.stopPropagation();
+    if (expandedId === opp.id) { setExpandedId(null); return; }
+    setExpandedId(opp.id);
+    if (!expandResData.current.has(opp.id)) {
+      setExpandLoading(true);
+      fetch(`/api/arb/resolution?poly_slug=${encodeURIComponent(opp.slug)}&kalshi_ticker=${encodeURIComponent(opp.kalshi.ticker)}`)
+        .then(r => r.json())
+        .then((data: ResolutionData) => { expandResData.current.set(opp.id, data); })
+        .catch(() => { expandResData.current.set(opp.id, null); })
+        .finally(() => { setExpandLoading(false); setExpandResVersion(v => v + 1); });
+    }
+  }
+
   const cols: { key: string; label: string; right?: boolean; sort?: SortBy }[] = [
     { key: "star",   label: "" },
     { key: "edge",   label: "Edge",        sort: "edge" },
@@ -594,56 +614,141 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
           <tbody className="divide-y">
             {sorted.map(opp => {
               const buyPoly = opp.direction === "buy_poly_sell_kalshi";
+              const isExpanded = expandedId === opp.id;
+              const rd = expandResVersion >= 0 ? expandResData.current.get(opp.id) : undefined;
               return (
-                <tr key={opp.id} onClick={() => onSelect(opp)}
-                    className={`hover:bg-muted/30 cursor-pointer transition-colors ${flashIds.has(opp.id) ? "bg-emerald-500/10" : ""}`}>
-                  <td className="pl-3 pr-1 py-2.5" onClick={e => { e.stopPropagation(); onStar(opp.id); }}>
-                    <Star className={`size-3.5 transition-colors ${watchlistIds.includes(opp.id) ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30 hover:text-amber-400"}`}/>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-1">
-                      <EdgePill pct={opp.netEdgePct}/>
-                      {(() => {
-                        const prev = prevEdgeRef?.current?.get(opp.id);
-                        if (prev === undefined) return null;
-                        const delta = opp.netEdgePct - prev;
-                        if (Math.abs(delta) < 0.1) return null;
-                        return (
-                          <span className={`text-[9px] font-mono leading-none ${delta > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-                            {delta > 0 ? "↑" : "↓"}{Math.abs(delta).toFixed(1)}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5"><MatchBadge grade={opp.matchQuality.grade}/></td>
-                  {hasAiScores && (
-                    <td className="px-3 py-2.5">
-                      {(() => {
-                        const s = aiScoreCache?.current?.get(opp.id);
-                        return s
-                          ? <MatchBadge grade={s.grade}/>
-                          : <span className="text-muted-foreground/30 text-xs font-mono">—</span>;
-                      })()}
+                <React.Fragment key={opp.id}>
+                  <tr onClick={() => onSelect(opp)}
+                      className={`hover:bg-muted/30 cursor-pointer transition-colors ${flashIds.has(opp.id) ? "bg-emerald-500/10" : ""} ${isExpanded ? "bg-muted/20" : ""}`}>
+                    <td className="pl-3 pr-1 py-2.5" onClick={e => { e.stopPropagation(); onStar(opp.id); }}>
+                      <Star className={`size-3.5 transition-colors ${watchlistIds.includes(opp.id) ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30 hover:text-amber-400"}`}/>
                     </td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-1">
+                        <EdgePill pct={opp.netEdgePct}/>
+                        {(() => {
+                          const prev = prevEdgeRef?.current?.get(opp.id);
+                          if (prev === undefined) return null;
+                          const delta = opp.netEdgePct - prev;
+                          if (Math.abs(delta) < 0.1) return null;
+                          return (
+                            <span className={`text-[9px] font-mono leading-none ${delta > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                              {delta > 0 ? "↑" : "↓"}{Math.abs(delta).toFixed(1)}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5"><MatchBadge grade={opp.matchQuality.grade}/></td>
+                    {hasAiScores && (
+                      <td className="px-3 py-2.5">
+                        {(() => {
+                          const s = aiScoreCache?.current?.get(opp.id);
+                          return s
+                            ? <MatchBadge grade={s.grade}/>
+                            : <span className="text-muted-foreground/30 text-xs font-mono">—</span>;
+                        })()}
+                      </td>
+                    )}
+                    <td className="px-3 py-2.5 max-w-xs">
+                      <div className="flex items-center gap-2 min-w-0 mb-0.5">
+                        <CategoryBadge cat={opp.category}/>
+                        <span className="font-medium truncate">{opp.question}</span>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground truncate pl-px">{opp.kalshi.title}</div>
+                    </td>
+                    <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${buyPoly ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-rose-600 dark:text-rose-400"}`}>{fmtC(opp.poly.price)}</td>
+                    <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${!buyPoly ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-rose-600 dark:text-rose-400"}`}>{fmtC(opp.kalshi.price)}</td>
+                    <td className="px-3 py-2.5 text-right font-mono tabular-nums">{opp.edgeCents}¢</td>
+                    <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">{fmtUsd(opp.capitalCap)}</td>
+                    <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">{timeUntil(opp.closes)}</td>
+                    <td className="px-3 py-2.5 text-right"><Sparkline data={realHistRef?.current?.get(opp.id) ?? opp.history} className="w-16 h-4 inline-block text-emerald-600 dark:text-emerald-400"/></td>
+                    <td className="pr-3 text-muted-foreground hover:text-foreground" onClick={e => handleExpandToggle(e, opp)}>
+                      <ChevronDown className={`size-3.5 transition-transform duration-150 ${isExpanded ? "" : "-rotate-90"}`}/>
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="bg-muted/5">
+                      <td colSpan={cols.length + 1} className="px-4 pb-4 pt-2 border-b">
+                        <div className="grid grid-cols-2 gap-4 text-xs">
+                          <div>
+                            <p className="text-[10px] font-semibold text-blue-500 dark:text-blue-400 uppercase tracking-wider mb-1.5">Polymarket</p>
+                            <p className="font-medium text-foreground leading-snug mb-1">{opp.question}</p>
+                            {expandLoading && isExpanded && !rd && (
+                              <div className="h-12 rounded bg-muted animate-pulse mt-2"/>
+                            )}
+                            {rd?.poly?.description && (
+                              <p className="text-[10px] text-muted-foreground leading-relaxed border-t border-border/40 pt-1.5 mt-1.5 line-clamp-4">
+                                {rd.poly.description.slice(0, 400)}
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-1.5">Kalshi</p>
+                            <p className="font-medium text-foreground leading-snug mb-1">{opp.kalshi.title}</p>
+                            {expandLoading && isExpanded && !rd && (
+                              <div className="h-12 rounded bg-muted animate-pulse mt-2"/>
+                            )}
+                            {rd?.kalshi?.rules_primary && (
+                              <p className="text-[10px] text-muted-foreground leading-relaxed border-t border-border/40 pt-1.5 mt-1.5 line-clamp-4">
+                                {rd.kalshi.rules_primary.slice(0, 400)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {rd?.poly?.description && rd?.kalshi?.rules_primary && (() => {
+                          const { polyOnly, kalshiOnly, shared } = computeResDiff(
+                            rd.poly.description,
+                            [rd.kalshi.rules_primary, rd.kalshi.rules_secondary].filter(Boolean).join(" "),
+                          );
+                          if (polyOnly.length === 0 && kalshiOnly.length === 0 && shared.length === 0) return null;
+                          return (
+                            <div className="mt-3 border-t border-border/40 pt-3 grid grid-cols-3 gap-3 text-[10px]">
+                              <div>
+                                <p className="text-blue-500 dark:text-blue-400 font-medium mb-1">Poly-only ({polyOnly.length})</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {polyOnly.slice(0, 6).map(w => (
+                                    <span key={w} className="rounded px-1.5 py-0.5 bg-blue-500/10 text-blue-700 dark:text-blue-300 font-mono">{w}</span>
+                                  ))}
+                                  {polyOnly.length === 0 && <span className="text-muted-foreground italic">none</span>}
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-emerald-600 dark:text-emerald-400 font-medium mb-1">Kalshi-only ({kalshiOnly.length})</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {kalshiOnly.slice(0, 6).map(w => (
+                                    <span key={w} className="rounded px-1.5 py-0.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-mono">{w}</span>
+                                  ))}
+                                  {kalshiOnly.length === 0 && <span className="text-muted-foreground italic">none</span>}
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-violet-600 dark:text-violet-400 font-medium mb-1">Shared ({shared.length})</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {shared.slice(0, 6).map(w => (
+                                    <span key={w} className="rounded px-1.5 py-0.5 bg-violet-500/10 text-violet-700 dark:text-violet-300 font-mono">{w}</span>
+                                  ))}
+                                  {shared.length === 0 && <span className="text-muted-foreground italic">none</span>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                        <div className="mt-3 flex items-center justify-between">
+                          <p className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                            <AlertTriangle className="size-3 shrink-0"/> Verify resolution criteria match before trading
+                          </p>
+                          <button
+                            onClick={e => { e.stopPropagation(); onSelect(opp); }}
+                            className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-0.5 transition-colors"
+                          >
+                            Open full <ChevronRight className="size-3"/>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   )}
-                  <td className="px-3 py-2.5 max-w-xs">
-                    <div className="flex items-center gap-2 min-w-0 mb-0.5">
-                      <CategoryBadge cat={opp.category}/>
-                      <span className="font-medium truncate">{opp.question}</span>
-                    </div>
-                    <div className="text-[10px] text-muted-foreground truncate pl-px">{opp.kalshi.title}</div>
-                  </td>
-                  <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${buyPoly ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-rose-600 dark:text-rose-400"}`}>{fmtC(opp.poly.price)}</td>
-                  <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${!buyPoly ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-rose-600 dark:text-rose-400"}`}>{fmtC(opp.kalshi.price)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono tabular-nums">{opp.edgeCents}¢</td>
-                  <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">{fmtUsd(opp.capitalCap)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">{timeUntil(opp.closes)}</td>
-                  <td className="px-3 py-2.5 text-right"><Sparkline data={realHistRef?.current?.get(opp.id) ?? opp.history} className="w-16 h-4 inline-block text-emerald-600 dark:text-emerald-400"/></td>
-                  <td className="pr-3 text-muted-foreground">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3.5"><path d="M9 5l7 7-7 7"/></svg>
-                  </td>
-                </tr>
+                </React.Fragment>
               );
             })}
           </tbody>
