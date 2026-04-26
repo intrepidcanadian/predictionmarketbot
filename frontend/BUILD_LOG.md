@@ -1230,3 +1230,34 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A30** — to be defined. Candidates: Kalshi position tracking; pair score vs spread correlation scatter; per-pair spread change history chart in drawer.
+
+---
+
+## 2026-04-27T04:00:00Z — milestone A30: Per-pair spread history chart in drawer
+
+### What I did
+- Added `SpreadChart({ entries })` component between `Sparkline` and the `// ── Table view` section: renders an SVG (400×80 viewBox) with labeled X-axis timestamps (oldest → latest, bottom corners), Y-axis ticks (min/mid/max with `±X.X` labels), horizontal grid lines, a dashed zero-crossing line when data straddles 0, a color-coded area+line (emerald when latest ≥ 0, rose when negative), per-entry dots (r=2 for ≤10 pts, r=1.5 for more)
+- Replaced the plain `<Sparkline>` in the "Spread history" section of `ArbDetail` with `<SpreadChart entries={history}/>` wrapped in an IIFE that also computes and renders a summary line: "oldest X% → latest Y% Δ±Z% over Nh"
+- Delta value colored emerald (widening) / rose (narrowing) when |Δ| > 0.05pp, neutral otherwise
+- Expanded history table from `history.slice(0, 8)` to all entries, inside a `max-h-48 overflow-y-auto` scrollable container; table header is `sticky top-0 bg-card` to stay visible while scrolling
+- Added Direction column to the table showing `P→K` (buy_poly_sell_kalshi) or `K→P` abbreviation
+
+### Tradeoffs / shortcuts
+- `SpreadChart` uses `preserveAspectRatio` omitted (SVG default) with a `viewBox="0 0 400 80"` and `className="w-full"` — scales cleanly to the drawer width without JS resize listeners
+- Y-axis mid tick is the arithmetic mean of min/max, not a "round number" tick — acceptable for the fine-grained spreads seen in practice (e.g. 27.1–27.2%)
+- `lineColor` is a hard-coded hex (`#10b981` / `#f43f5e`) rather than a CSS variable — SVG `stroke` does not inherit Tailwind classes without extra wiring; the colors match emerald-500/rose-500 exactly
+- History data is already fetched in the existing `useEffect` (unchanged) — no new API calls
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: opened first pair → scrolled to "SPREAD HISTORY" → chart rendered with green line, Y-axis labels (+27.2/+27.1), X-axis timestamps (04:08 PM → 04:04 AM), 28 scans tracked; summary line "oldest +27.1% → latest +27.2% Δ+0.1% over 11.9h" visible; full history table with K→P direction column, scrollable
+- No console errors
+
+### Follow-ups for future runs
+- Kalshi position tracking still outstanding
+- Pair score vs spread correlation scatter still outstanding
+- Could add a tooltip on hover over data dots showing exact timestamp + edge for that scan
+
+### Next milestone to pick up
+**A31** — to be defined. Candidates: Kalshi position tracking; pair score vs spread correlation scatter; tooltip on SpreadChart data points.

@@ -318,6 +318,62 @@ function Sparkline({ data, w = 64, h = 18, className = "" }: { data: number[]; w
   );
 }
 
+function SpreadChart({ entries }: { entries: HistoryEntry[] }) {
+  if (entries.length < 2) return null;
+  const ordered = [...entries].reverse(); // oldest-first for left→right rendering
+  const values  = ordered.map(e => e.net_edge_pct);
+  const times   = ordered.map(e => new Date(e.ts).getTime());
+  const minV = Math.min(...values), maxV = Math.max(...values);
+  const range = maxV - minV || 1;
+  const minT = times[0], maxT = times[times.length - 1];
+  const tRange = maxT - minT || 1;
+
+  const W = 400, H = 80;
+  const PAD = { top: 8, right: 8, bottom: 22, left: 36 };
+  const cw = W - PAD.left - PAD.right, ch = H - PAD.top - PAD.bottom;
+  const px = (t: number) => PAD.left + ((t - minT) / tRange) * cw;
+  const py = (v: number) => PAD.top + (1 - (v - minV) / range) * ch;
+
+  const lineColor = values[values.length - 1] >= 0 ? "#10b981" : "#f43f5e";
+  const polyPts   = ordered.map((e, i) => `${px(times[i]).toFixed(1)},${py(e.net_edge_pct).toFixed(1)}`).join(" ");
+  const areaBase  = (PAD.top + ch).toFixed(1);
+  const areaLeft  = px(times[0]).toFixed(1);
+  const areaRight = px(times[times.length - 1]).toFixed(1);
+
+  const showZero  = minV < 0 && maxV > 0;
+  const yTicks    = [maxV, (maxV + minV) / 2, minV];
+  const fmtT      = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const dotR      = ordered.length <= 10 ? 2 : 1.5;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
+      {yTicks.map((v, i) => (
+        <line key={i} x1={PAD.left} y1={py(v)} x2={PAD.left + cw} y2={py(v)}
+          stroke="currentColor" strokeOpacity="0.07" strokeWidth="0.5"/>
+      ))}
+      {showZero && (
+        <line x1={PAD.left} y1={py(0)} x2={PAD.left + cw} y2={py(0)}
+          stroke="currentColor" strokeOpacity="0.22" strokeWidth="0.75" strokeDasharray="3,2"/>
+      )}
+      <polygon points={`${areaLeft},${areaBase} ${polyPts} ${areaRight},${areaBase}`}
+        fill={lineColor} opacity="0.1"/>
+      <polyline points={polyPts} fill="none" stroke={lineColor} strokeWidth="1.5"
+        strokeLinecap="round" strokeLinejoin="round"/>
+      {ordered.map((e, i) => (
+        <circle key={i} cx={px(times[i])} cy={py(e.net_edge_pct)} r={dotR} fill={lineColor}/>
+      ))}
+      {yTicks.map((v, i) => (
+        <text key={i} x={PAD.left - 3} y={py(v) + 3} textAnchor="end"
+          fontSize="7" fill="currentColor" opacity="0.45">
+          {v >= 0 ? "+" : ""}{v.toFixed(1)}
+        </text>
+      ))}
+      <text x={PAD.left} y={H - 5} textAnchor="start" fontSize="7" fill="currentColor" opacity="0.45">{fmtT(minT)}</text>
+      <text x={PAD.left + cw} y={H - 5} textAnchor="end" fontSize="7" fill="currentColor" opacity="0.45">{fmtT(maxT)}</text>
+    </svg>
+  );
+}
+
 // ── Table view ─────────────────────────────────────────────────────────────
 
 function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, onStar, aiScoreCache, aiScoreVersion, realHistRef, histVersion, prevEdgeRef }: {
@@ -1029,26 +1085,43 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
               <p className="text-[11px] text-muted-foreground">No history yet — run another scan to start tracking this pair.</p>
             ) : (
               <>
-                {history.length >= 2 && (
-                  <div className="mb-3">
-                    <Sparkline
-                      data={[...history].reverse().map(e => e.net_edge_pct)}
-                      w={320} h={40}
-                      className="w-full h-10"
-                    />
-                  </div>
-                )}
-                <div className="overflow-x-auto">
+                {history.length >= 2 && (() => {
+                  const oldest  = history[history.length - 1];
+                  const newest  = history[0];
+                  const delta   = newest.net_edge_pct - oldest.net_edge_pct;
+                  const spanMs  = new Date(newest.ts).getTime() - new Date(oldest.ts).getTime();
+                  const spanStr = spanMs < 3_600_000
+                    ? `${Math.round(spanMs / 60_000)}m`
+                    : spanMs < 86_400_000
+                    ? `${(spanMs / 3_600_000).toFixed(1)}h`
+                    : `${(spanMs / 86_400_000).toFixed(1)}d`;
+                  return (
+                    <div className="mb-3 space-y-2">
+                      <SpreadChart entries={history}/>
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono flex-wrap">
+                        <span>oldest <span className={oldest.net_edge_pct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>{oldest.net_edge_pct >= 0 ? "+" : ""}{oldest.net_edge_pct.toFixed(1)}%</span></span>
+                        <span className="opacity-40">→</span>
+                        <span>latest <span className={newest.net_edge_pct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>{newest.net_edge_pct >= 0 ? "+" : ""}{newest.net_edge_pct.toFixed(1)}%</span></span>
+                        <span className={`font-semibold ${delta > 0.05 ? "text-emerald-600 dark:text-emerald-400" : delta < -0.05 ? "text-rose-600 dark:text-rose-400" : ""}`}>
+                          Δ{delta >= 0 ? "+" : ""}{delta.toFixed(1)}%
+                        </span>
+                        <span className="opacity-40">over {spanStr}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div className="overflow-x-auto max-h-48 overflow-y-auto">
                   <table className="w-full text-[11px] font-mono">
-                    <thead className="text-muted-foreground border-b">
+                    <thead className="text-muted-foreground border-b sticky top-0 bg-card">
                       <tr>
                         <th className="text-left pb-1 font-normal">Time</th>
                         <th className="text-right pb-1 font-normal">Edge</th>
                         <th className="text-right pb-1 font-normal">Spread</th>
+                        <th className="text-right pb-1 font-normal">Direction</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/40">
-                      {history.slice(0, 8).map((e, i) => {
+                      {history.map((e, i) => {
                         const ago = (() => {
                           const s = Math.floor((Date.now() - new Date(e.ts).getTime()) / 1000);
                           if (s < 60) return `${s}s ago`;
@@ -1056,6 +1129,7 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
                           if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
                           return `${Math.floor(s / 86400)}d ago`;
                         })();
+                        const dir = e.direction === "buy_poly_sell_kalshi" ? "P→K" : "K→P";
                         return (
                           <tr key={i} className={i === 0 ? "font-semibold" : "text-muted-foreground"}>
                             <td className="py-1">{ago}</td>
@@ -1063,6 +1137,7 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
                               {e.net_edge_pct >= 0 ? "+" : ""}{e.net_edge_pct.toFixed(1)}%
                             </td>
                             <td className="py-1 text-right">{e.edge_cents}¢</td>
+                            <td className="py-1 text-right opacity-60">{dir}</td>
                           </tr>
                         );
                       })}
