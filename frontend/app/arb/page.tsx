@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History, Link2, Check, Star, X } from "lucide-react";
@@ -86,8 +86,14 @@ interface MatchQuality {
   polyCloses?: string;
 }
 
+interface ResolutionData {
+  poly: { question: string; description: string } | null;
+  kalshi: { title: string; rules_primary: string; rules_secondary: string } | null;
+}
+
 interface ScanOpp {
   id: string;
+  slug: string;
   condition_id: string;
   token_id: string;
   question: string;
@@ -174,6 +180,7 @@ function toScanOpp(poly: PolyMarket, kalshi: KalshiMarket, score: number): ScanO
   const mq = computeMatchQuality(score, poly.end_date, kalshi.close_time);
   return {
     id: `${poly.id}-${kalshi.ticker}`,
+    slug: poly.slug,
     condition_id: poly.condition_id,
     token_id: poly.token_id,
     question: poly.question,
@@ -589,7 +596,10 @@ interface AiMatch {
   grade: "H" | "M" | "L";
 }
 
-function ArbDetail({ opp, onClose, isWatched, onStar }: { opp: ScanOpp; onClose: () => void; isWatched: boolean; onStar: () => void }) {
+function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
+  opp: ScanOpp; onClose: () => void; isWatched: boolean; onStar: () => void;
+  aiScoreCache: React.MutableRefObject<Map<string, AiMatch>>;
+}) {
   const router = useRouter();
   const [capital,      setCapital]     = useState(1000);
   const [showConfirm,  setShowConfirm] = useState(false);
@@ -602,6 +612,8 @@ function ArbDetail({ opp, onClose, isWatched, onStar }: { opp: ScanOpp; onClose:
   const [aiMatch,      setAiMatch]     = useState<AiMatch | null>(null);
   const [aiMatchLoading, setAiMatchLoading] = useState(false);
   const [aiMatchError, setAiMatchError] = useState<string | null>(null);
+  const [resolution,   setResolution]  = useState<ResolutionData | null>(null);
+  const [resLoading,   setResLoading]  = useState(false);
 
   useEffect(() => {
     setHistory([]);
@@ -625,6 +637,13 @@ function ArbDetail({ opp, onClose, isWatched, onStar }: { opp: ScanOpp; onClose:
   }, [opp.token_id, opp.kalshi.ticker]);
 
   useEffect(() => {
+    const cached = aiScoreCache.current.get(opp.id);
+    if (cached) {
+      setAiMatch(cached);
+      setAiMatchLoading(false);
+      setAiMatchError(null);
+      return;
+    }
     setAiMatch(null);
     setAiMatchError(null);
     setAiMatchLoading(true);
@@ -636,11 +655,27 @@ function ArbDetail({ opp, onClose, isWatched, onStar }: { opp: ScanOpp; onClose:
       .then(r => r.json())
       .then(d => {
         if (d.error) setAiMatchError(d.error);
-        else setAiMatch(d as AiMatch);
+        else {
+          setAiMatch(d as AiMatch);
+          aiScoreCache.current.set(opp.id, d as AiMatch);
+        }
       })
       .catch(() => setAiMatchError("Network error"))
       .finally(() => setAiMatchLoading(false));
-  }, [opp.id]);
+  }, [opp.id, aiScoreCache]);
+
+  useEffect(() => {
+    setResolution(null);
+    setResLoading(true);
+    const params = new URLSearchParams();
+    if (opp.slug)         params.set("poly_slug",     opp.slug);
+    if (opp.kalshi.ticker) params.set("kalshi_ticker", opp.kalshi.ticker);
+    fetch(`/api/arb/resolution?${params}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setResolution(d as ResolutionData); })
+      .catch(() => {})
+      .finally(() => setResLoading(false));
+  }, [opp.id, opp.slug, opp.kalshi.ticker]);
 
   const buyPoly   = opp.direction === "buy_poly_sell_kalshi";
   const buyVenue  = buyPoly ? "poly" : "kalshi";
@@ -1032,12 +1067,27 @@ function ArbDetail({ opp, onClose, isWatched, onStar }: { opp: ScanOpp; onClose:
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
                 <p className="font-medium text-blue-600 dark:text-blue-400 mb-1.5">Polymarket</p>
-                <p className="text-muted-foreground leading-relaxed">{opp.question}</p>
+                <p className="text-muted-foreground leading-relaxed font-medium">{opp.question}</p>
+                {resLoading && <div className="h-16 rounded bg-muted animate-pulse mt-2"/>}
+                {!resLoading && resolution?.poly?.description && (
+                  <p className="text-muted-foreground leading-relaxed text-[10px] mt-2 max-h-36 overflow-y-auto whitespace-pre-wrap border-t border-border/50 pt-2">
+                    {resolution.poly.description}
+                  </p>
+                )}
               </div>
               <div>
                 <p className="font-medium text-emerald-700 dark:text-emerald-400 mb-1.5">Kalshi</p>
-                <p className="text-muted-foreground leading-relaxed">{opp.kalshi.title}</p>
+                <p className="text-muted-foreground leading-relaxed font-medium">{opp.kalshi.title}</p>
+                {resLoading && <div className="h-16 rounded bg-muted animate-pulse mt-2"/>}
+                {!resLoading && resolution?.kalshi && (
+                  <p className="text-muted-foreground leading-relaxed text-[10px] mt-2 max-h-36 overflow-y-auto whitespace-pre-wrap border-t border-border/50 pt-2">
+                    {[resolution.kalshi.rules_primary, resolution.kalshi.rules_secondary].filter(Boolean).join("\n\n")}
+                  </p>
+                )}
               </div>
+            </div>
+            <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="size-3 shrink-0"/> Verify both sides resolve identically before trading.
             </div>
           </div>
 
@@ -1224,9 +1274,10 @@ export default function ArbPage() {
   const [autoInterval, setAutoInterval] = usePref<number>("arb:auto-interval", 120);
   const [countdown,    setCountdown]    = useState(120);
   const [changedCount, setChangedCount] = useState<number | null>(null);
-  const prevOppsRef    = useRef<ScanOpp[]>([]);
-  const autoRunRef     = useRef<() => void>(() => {});
-  const pendingPairRef = useRef<string | null>(null);
+  const prevOppsRef      = useRef<ScanOpp[]>([]);
+  const autoRunRef       = useRef<() => void>(() => {});
+  const pendingPairRef   = useRef<string | null>(null);
+  const aiScoreCacheRef  = useRef<Map<string, AiMatch>>(new Map());
 
   // Watchlist
   const [watchlistIds,  setWatchlistIds]  = usePref<string[]>("arb:watchlist", []);
@@ -1720,7 +1771,7 @@ export default function ArbPage() {
         )}
       </div>
 
-      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)}/>}
+      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)} aiScoreCache={aiScoreCacheRef}/>}
     </div>
   );
 }

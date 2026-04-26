@@ -845,5 +845,39 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - Could pass the full resolution text (from `/api/arb/resolution`) to the LLM for higher accuracy — would require fetching resolution first or a second API call
 - Could cache scores per `opp.id` in a Map ref to avoid re-fetching when the user reopens the same pair
 
+---
+
+## 2026-04-26T16:30:00Z — milestone A18: Session AI score cache + full resolution text
+
+### What I did
+- Added `ResolutionData` interface to `app/arb/page.tsx` (client-side type mirroring the route's exported interface)
+- Added `slug: string` field to `ScanOpp` interface; propagated `poly.slug` through `toScanOpp`
+- Added `aiScoreCacheRef = useRef<Map<string, AiMatch>>(new Map())` in `ArbPage`; passed to `ArbDetail` as `aiScoreCache` prop
+- Updated `ArbDetail` AI score `useEffect`: checks cache before firing POST; stores result in cache after successful fetch — avoids re-calling Haiku when user re-opens the same pair within a session
+- Added `resolution` + `resLoading` state in `ArbDetail`
+- Added resolution fetch `useEffect` in `ArbDetail`: fetches `/api/arb/resolution?poly_slug=...&kalshi_ticker=...` on pair open (route has 5-minute ISR cache, so re-opens are near-instant)
+- Expanded "Resolution criteria" panel: each side now shows the market title in bold + scrollable full description/rules text below a hairline divider with a loading skeleton while fetching; added amber "Verify both sides resolve identically before trading." banner at the bottom
+
+### Tradeoffs / shortcuts
+- AI score cache is session-only (in `useRef`, cleared on page reload) — persistent cache would require localStorage or a server-side store; session-only is sufficient since Haiku calls are fast and cheap per session
+- Resolution text fetched in `ArbDetail` (not at scan time) — avoids 40+ resolution fetches per scan; lazy-fetch on pair open is correct since the panel is only visible after selection
+- Cache does NOT survive across different `ArbDetail` instances — since `ArbDetail` remounts when drawer closes/opens, the cache ref must live in `ArbPage` (parent) to persist across drawer open/close cycles. This is why it's defined in `ArbPage` and passed down.
+- Resolution text can be long (multi-paragraph); capped at `max-h-36 overflow-y-auto` to keep the drawer usable
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: ran scan → clicked first row ("Trump out as President before GTA VI?") → scrolled drawer to bottom → "Resolution criteria" panel shows full Polymarket description (multi-paragraph, GTA VI resolution logic) and Kalshi rules ("Will Trump end the Federal Reserve before Jan 20, 2029?") side-by-side with amber warning
+- Confirmed this is a clear false positive — resolution criteria differ completely — validating the panel's utility
+- No new console errors (pre-existing SSR button-nesting warning is unchanged)
+
+### Follow-ups for future runs
+- Could pass resolution text snippets (first 400 chars each) to `/api/arb/match-score` for higher-accuracy AI scoring — currently the LLM only sees market titles
+- Could add a "Match/Mismatch" indicator (LLM-scored, not in trade path) that auto-fires when resolution text loads
+- Pre-existing SSR `button > button` hydration warning in CardView (0 actual nested buttons in DOM) could be fixed by changing the card outer element to `<div role="button">` instead of `<button>`
+
+### Next milestone to pick up
+**A19** — to be defined. Candidates: feed resolution text to AI scoring for higher accuracy; fix CardView SSR button-nesting warning; Kalshi position tracking.
+
 ### Next milestone to pick up
 **A18** — to be defined. Candidates: cache AI scores per session (avoid re-fetching same pair); pass resolution text to improve scoring accuracy; Kalshi position tracking.
