@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History, Link2, Check } from "lucide-react";
 
 // ── localStorage preference hook ───────────────────────────────────────────
 
@@ -559,6 +559,7 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
   const [orderbook,    setOrderbook]   = useState<OrderbookData | null>(null);
   const [obLoading,    setObLoading]   = useState(false);
   const [history,      setHistory]     = useState<HistoryEntry[]>([]);
+  const [copied,       setCopied]      = useState(false);
 
   useEffect(() => {
     setHistory([]);
@@ -647,6 +648,19 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
             </div>
             <h2 className="text-base font-semibold leading-snug pr-2">{opp.question}</h2>
           </div>
+          <button
+            onClick={() => {
+              if (typeof navigator !== "undefined") {
+                navigator.clipboard.writeText(window.location.href).catch(() => {});
+              }
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }}
+            title="Copy link to this pair"
+            className="size-7 rounded-md hover:bg-muted grid place-items-center text-muted-foreground shrink-0"
+          >
+            {copied ? <Check className="size-3.5 text-emerald-600 dark:text-emerald-400"/> : <Link2 className="size-3.5"/>}
+          </button>
           <button onClick={onClose} className="size-7 rounded-md hover:bg-muted grid place-items-center text-muted-foreground shrink-0">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-4"><path d="M6 6l12 12M18 6 6 18"/></svg>
           </button>
@@ -1107,8 +1121,9 @@ export default function ArbPage() {
   const [autoInterval, setAutoInterval] = usePref<number>("arb:auto-interval", 120);
   const [countdown,    setCountdown]    = useState(120);
   const [changedCount, setChangedCount] = useState<number | null>(null);
-  const prevOppsRef = useRef<ScanOpp[]>([]);
-  const autoRunRef  = useRef<() => void>(() => {});
+  const prevOppsRef    = useRef<ScanOpp[]>([]);
+  const autoRunRef     = useRef<() => void>(() => {});
+  const pendingPairRef = useRef<string | null>(null);
 
   // Notification state
   const [notifyEnabled,   setNotifyEnabled]   = usePref<boolean>("arb:notify", false);
@@ -1123,13 +1138,39 @@ export default function ArbPage() {
   const [newAlertCount, setNewAlertCount] = useState(0);
   const [showAlertLog,  setShowAlertLog]  = useState(false);
 
-  // Init permission from browser on mount; fetch alert log
+  // Init permission from browser on mount; fetch alert log; capture ?pair= deep-link
   useEffect(() => {
     if (typeof Notification !== "undefined") setNotifyPerm(Notification.permission);
     fetch("/api/alert-log")
       .then(r => r.ok ? r.json() : [])
       .then(d => setAlertLog(d as AlertLogEntry[]))
       .catch(() => {});
+    const pairParam = new URLSearchParams(window.location.search).get("pair");
+    if (pairParam) {
+      pendingPairRef.current = pairParam;
+      // Trigger a scan so the pending pair can be auto-selected once results arrive
+      setTimeout(() => autoRunRef.current(), 100);
+    }
+  }, []);
+
+  // Auto-select a pair from deep-link after the first scan populates opps
+  useEffect(() => {
+    if (!pendingPairRef.current || opps.length === 0) return;
+    const match = opps.find(o => o.id === pendingPairRef.current);
+    if (match) {
+      setSelected(match);
+      pendingPairRef.current = null;
+    }
+  }, [opps]);
+
+  // Wrapper that syncs selection to the URL
+  const selectOpp = useCallback((opp: ScanOpp | null) => {
+    setSelected(opp);
+    if (opp) {
+      window.history.replaceState(null, "", `/arb?pair=${encodeURIComponent(opp.id)}`);
+    } else {
+      window.history.replaceState(null, "", "/arb");
+    }
   }, []);
 
   // Keep notifyRef in sync
@@ -1520,9 +1561,9 @@ export default function ArbPage() {
         )}
         {!scanning && filtered.length > 0 && (
           <>
-            {view === "table"  && <TableView opps={filtered} onSelect={setSelected} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds}/>}
-            {view === "cards"  && <CardView  opps={filtered} onSelect={setSelected}/>}
-            {view === "ticker" && <TickerView opps={filtered} onSelect={setSelected}/>}
+            {view === "table"  && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds}/>}
+            {view === "cards"  && <CardView  opps={filtered} onSelect={selectOpp}/>}
+            {view === "ticker" && <TickerView opps={filtered} onSelect={selectOpp}/>}
             <p className="text-[10px] text-muted-foreground text-center mt-6 font-mono">
               {opps.length} pairs scanned · keyword-matched · net of Poly 2% + Kalshi 7% fees
             </p>
@@ -1530,7 +1571,7 @@ export default function ArbPage() {
         )}
       </div>
 
-      {selected && <ArbDetail opp={selected} onClose={() => setSelected(null)}/>}
+      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)}/>}
     </div>
   );
 }

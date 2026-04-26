@@ -667,4 +667,36 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - `alert-log.jsonl` file path is relative to `process.cwd()` (frontend/) — consistent with `arb-history.jsonl` pattern
 
 ### Next milestone to pick up
-**A13** — to be defined. Candidates: URL-param shareable arb pair state (deep-link to a specific pair); per-pair JSONL cap in history; Kalshi position tracking.
+**A14** — to be defined. Candidates: per-pair JSONL history cap (prevent one pair dominating the log); Kalshi position tracking; LLM-assisted match scoring (display only, not in trade path).
+
+---
+
+## 2026-04-26T11:30:00Z — milestone A13: Deep-link / shareable pair state
+
+### What I did
+- Added `Link2` and `Check` icons to lucide-react imports
+- Added `pendingPairRef = useRef<string | null>(null)` to `ArbPage`
+- Extended the mount `useEffect`: reads `?pair=` from `window.location.search`; if present, stores in `pendingPairRef` and fires `autoRunRef.current()` after 100ms so a scan starts immediately on deep-link load
+- Added `useEffect` on `opps`: after any scan, if `pendingPairRef.current` is set, finds the matching opp by ID and calls `setSelected(match)` then clears the ref
+- Added `selectOpp` wrapper (`useCallback`) that calls `setSelected` + `window.history.replaceState` to sync `?pair=<id>` to the URL on select, or `/arb` (no params) on deselect
+- Replaced all `setSelected` call-sites in JSX (`onSelect` props for `TableView`/`CardView`/`TickerView`, and `onClose`) with `selectOpp`
+- In `ArbDetail`: added `[copied, setCopied]` state; added "Copy link to this pair" button (Link2 icon → Check icon for 2s after click) in the sticky header between the pair ID badge and the close button
+
+### Tradeoffs / shortcuts
+- `window.history.replaceState` (not `router.replace`) is used for shallow URL updates — avoids Next.js App Router re-rendering the layout on every selection
+- Auto-scan on deep-link fires via `autoRunRef` with a 100ms delay (ensures the ref is wired before the effect fires); this means a fresh page load with `?pair=` triggers one scan automatically
+- If the pair no longer appears in the scan results (e.g. market closed), `pendingPairRef` is silently cleared and no drawer opens — acceptable for a localhost tool
+- `navigator.clipboard.writeText` is fire-and-forget; errors silently swallowed (copy fails in non-HTTPS contexts, but localhost is treated as secure by browsers)
+
+### Verified by
+- `python -m pytest` in executor/ — 35/35 pass
+- `bun run tsc --noEmit` — 0 errors
+- Browser: clicked first card → URL updated to `?pair=540820-KXTRUMPBULLCASECOMBO-27DEC-26`
+- "Copy link to this pair" button visible in drawer header (title confirmed via DOM)
+- Closed drawer → URL reverted to `/arb` (no params)
+- Deep-link test: navigated to `/arb?pair=540820-KXTRUMPBULLCASECOMBO-27DEC-26` → auto-scan fired → drawer opened automatically to the correct pair
+- No console errors
+
+### Follow-ups for future runs
+- Per-pair JSONL history cap to prevent one high-frequency pair from filling `arb-history.jsonl`
+- Could preserve the full query string (minEdge, category filter) in the shared URL so recipients see the same filtered view
