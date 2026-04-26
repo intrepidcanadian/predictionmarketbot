@@ -1286,3 +1286,41 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A32** — Candidates: Kalshi position tracking; pair score vs spread correlation scatter; batch match scoring UI improvements.
+
+---
+
+## 2026-04-27T06:00:00Z — milestone A32: Server-side scan route + snapshot cache
+
+### What I did
+- Created `app/api/arb/scan/route.ts` (new file, ~250 lines):
+  - **GET** — reads `arb-latest.json` and returns it (for instant page-load display); returns empty result if file doesn't exist yet
+  - **POST** — checks cache: if `arb-latest.json` is < 5 min old and `force` is not set, returns cached result with `{ cached: true }`; otherwise runs a full fresh scan
+  - Fresh scan: fetches ALL Kalshi markets in one paginated pass (cursor-based, up to 5 pages) + political series supplement; fetches Polymarket markets for each SCAN_QUERY keyword in parallel; cross-matches by keyword score; computes spreads + fees; writes results to `arb-latest.json` + appends to `arb-history.jsonl` (same pruning logic as before)
+  - Returns `{ opps, scannedAt, cached, kalshiCount, illiquidFiltered }`
+- Simplified `runScan` in `page.tsx` from ~100 lines to ~50: now a single `fetch('/api/arb/scan', { method: 'POST', body: { force } })` call; history writing, market fetching, spread computation all moved to server
+- Added `lastScannedAt` state + `nowTick` state (30s interval) + `lastScannedLabel` useMemo to `ArbPage`; shows "scanned Xm ago" below the Run Scan button
+- Updated mount effect to also `GET /api/arb/scan` on load — if snapshot has opps, populates state immediately (instant display without clicking Run Scan)
+- Added `3600` to `AUTO_INTERVALS` (1h option) with correct label `1h`; fixed countdown display to show `Xh Ym` format for intervals ≥ 3600s
+- Route is cron-ready: any external process (cron, curl) can `POST http://localhost:3111/api/arb/scan` to trigger an unattended scan
+
+### Tradeoffs / shortcuts
+- Server-side scan fetches ALL Kalshi markets (not keyword-filtered per-query) before cross-matching — this is actually better coverage (134 markets vs ~4 before); the Poly fetch is still keyword-based (7 parallel queries) to limit Gamma API calls
+- Pure math functions (`calcNetEdge`, `keywordScore`, `computeMatchQuality`, `toScanOpp`, `syntheticHistory`) are duplicated in the route — the browser copies are still present but no longer called in `runScan`; they remain for display helpers (`computeResDiff`, etc.)
+- `force` flag allows bypassing cache; currently only the "Run Scan" button passes `force: false` (same as default); a future "Force refresh" button could pass `force: true`
+- `arb-latest.json` is written to `process.cwd()` which Next.js resolves to `frontend/` — same directory as `arb-history.jsonl`
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors (two runs, both exit 0)
+- `python -m pytest` in executor/ — 35/35 pass
+- `curl -X POST http://localhost:3111/api/arb/scan -H "Content-Type: application/json" -d '{}'` → `scannedAt: 2026-04-26T22:38:56Z, opps: 25, cached: False`
+- `arb-latest.json` created at `frontend/arb-latest.json` with 25 opps
+- Browser: page reload → snapshot loaded instantly (25 opps, no scan needed); "scanned 1m ago" label visible under Run Scan button; 134 Kalshi markets shown in meta badge
+
+### Follow-ups for future runs
+- Wire up a system cron: `* * * * * curl -s -X POST http://localhost:3111/api/arb/scan -H "Content-Type: application/json" -d '{}' >> /tmp/arb-scan.log` (every hour: change `* * * * *` to `0 * * * *`)
+- Could expose a `/api/arb/scan/status` GET that returns last scan time + result count without returning all opps (useful for a status indicator)
+- Kalshi position tracking still outstanding
+- Browser `kalshiCatsArr` filter preference is no longer sent to the server scan (server fetches all categories); the UI category pills still filter displayed results correctly
+
+### Next milestone to pick up
+**A33** — Candidates: system cron setup + scan log viewer in UI; Kalshi position tracking; pair score vs spread correlation scatter.

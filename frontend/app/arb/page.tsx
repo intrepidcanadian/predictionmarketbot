@@ -37,7 +37,7 @@ const CATEGORY_MAP: Record<string, string> = {
   Crypto: "Crypto", World: "Politics", Finance: "Finance",
 };
 const KALSHI_CATS = ["Politics", "Economics", "Financials", "Crypto", "World", "Finance"] as const;
-const AUTO_INTERVALS    = [60, 120, 300, 600] as const;
+const AUTO_INTERVALS    = [60, 120, 300, 600, 3600] as const;
 const NOTIFY_THRESHOLDS = [5, 10, 20] as const;
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -1638,10 +1638,38 @@ export default function ArbPage() {
   const [newAlertCount, setNewAlertCount] = useState(0);
   const [showAlertLog,  setShowAlertLog]  = useState(false);
 
-  // Init permission from browser on mount; fetch alert log + AI score cache; real history cache; capture ?pair= + filter deep-link
+  // Last-scanned timestamp (set by runScan or loaded from snapshot on mount)
+  const [lastScannedAt, setLastScannedAt] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const lastScannedLabel = useMemo(() => {
+    if (!lastScannedAt) return null;
+    const s = Math.floor((Date.now() - new Date(lastScannedAt).getTime()) / 1000);
+    if (s < 60)    return "just now";
+    if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  }, [lastScannedAt, nowTick]);
+
+  // Init permission from browser on mount; load snapshot; fetch alert log + AI cache; real history
   useEffect(() => {
     if (typeof Notification !== "undefined") setNotifyPerm(Notification.permission);
     refreshRealHist();
+    // Load last scan snapshot for instant display
+    fetch("/api/arb/scan")
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { opps: ScanOpp[]; scannedAt: string; kalshiCount: number; illiquidFiltered: number } | null) => {
+        if (data?.opps?.length) {
+          setOpps(data.opps);
+          prevOppsRef.current = data.opps;
+          setLastScannedAt(data.scannedAt);
+          setKalshiMeta({ count: data.kalshiCount ?? 0, illiquid: data.illiquidFiltered ?? 0 });
+        }
+      })
+      .catch(() => {});
     fetch("/api/alert-log")
       .then(r => r.ok ? r.json() : [])
       .then(d => setAlertLog(d as AlertLogEntry[]))
@@ -1731,43 +1759,23 @@ export default function ArbPage() {
     return () => clearInterval(id);
   }, [opps]);
 
-  const runScan = useCallback(async () => {
+  const runScan = useCallback(async (force = false) => {
     setScanning(true); setOpps([]);
     try {
-      const allPoly: PolyMarket[] = [], allKalshi: KalshiMarket[] = [];
-      const catsParam = encodeURIComponent([...kalshiCats].join(","));
-      let totalIlliquid = 0;
-      await Promise.all(SCAN_QUERIES.map(async q => {
-        const [pr, kr] = await Promise.all([
-          fetch(`/api/markets?q=${encodeURIComponent(q)}&limit=10&active=true`).then(r => r.json()),
-          fetch(`/api/kalshi/markets?search=${encodeURIComponent(q)}&categories=${catsParam}`).then(r => r.json()),
-        ]);
-        (Array.isArray(pr) ? pr : []).forEach((m: Record<string, unknown>) => {
-          if (allPoly.find(x => x.id === String(m.id))) return;
-          const prices = Array.isArray(m.outcomePrices) ? m.outcomePrices.map(Number) : [0.5, 0.5];
-          const tokenIds = m.clobTokenIds as string[] | null;
-          allPoly.push({ id: String(m.id ?? ""), condition_id: String(m.conditionId ?? ""), question: String(m.question ?? ""), slug: String(m.slug ?? ""), token_id: tokenIds?.[0] ?? "", yes_price: prices[0] ?? 0.5, no_price: prices[1] ?? 0.5, volume: Number(m.volume ?? 0), liquidity: Number(m.liquidity ?? 0), active: Boolean(m.active), end_date: m.endDate ? String(m.endDate) : undefined });
-        });
-        const krMarkets: KalshiMarket[] = Array.isArray(kr) ? kr : (kr.markets ?? []);
-        if (!Array.isArray(kr) && kr.meta?.illiquid_filtered) totalIlliquid += kr.meta.illiquid_filtered;
-        krMarkets.forEach((m: KalshiMarket) => {
-          if (!allKalshi.find(x => x.ticker === m.ticker)) allKalshi.push(m);
-        });
-      }));
-      setKalshiMeta({ count: allKalshi.length, illiquid: totalIlliquid });
+      const res = await fetch("/api/arb/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force }),
+      });
+      if (!res.ok) throw new Error(`Scan failed: ${res.status}`);
+      const data = await res.json() as {
+        opps: ScanOpp[]; scannedAt: string; cached: boolean;
+        kalshiCount: number; illiquidFiltered: number;
+      };
+      const top = data.opps ?? [];
 
-      const result: ScanOpp[] = [];
-      for (const k of allKalshi) {
-        if (k.yes_ask <= 0 || k.no_ask <= 0) continue;
-        let best: { poly: PolyMarket; score: number } | null = null;
-        for (const p of allPoly) {
-          const score = keywordScore(p.question, k.title);
-          if (score > 0.15 && (!best || score > best.score)) best = { poly: p, score };
-        }
-        if (best) result.push(toScanOpp(best.poly, k, best.score));
-      }
-      result.sort((a, b) => b.netEdgePct - a.netEdgePct);
-      const top = result.slice(0, 25);
+      setLastScannedAt(data.scannedAt ?? new Date().toISOString());
+      setKalshiMeta({ count: data.kalshiCount ?? 0, illiquid: data.illiquidFiltered ?? 0 });
 
       // Diff against previous scan for the "N changed" badge
       if (prevOppsRef.current.length > 0) {
@@ -1787,69 +1795,36 @@ export default function ArbPage() {
       prevOppsRef.current = top;
       setOpps(top);
 
-      // Browser notifications for new opportunities above threshold
-      if (
-        notifyRef.current.enabled &&
-        typeof Notification !== "undefined" &&
-        Notification.permission === "granted"
-      ) {
+      // Browser notifications (client-only — server can't push these)
+      if (notifyRef.current.enabled && typeof Notification !== "undefined" && Notification.permission === "granted") {
         for (const opp of top) {
           const { watchlistIds: wl, thresholds: pt } = pairAlertRef.current;
-          const effectiveThresh = wl.includes(opp.id) && pt[opp.id] != null
-            ? pt[opp.id]
-            : notifyRef.current.threshold;
-          if (
-            opp.netEdgePct >= effectiveThresh &&
-            !notifiedIdsRef.current.has(opp.id)
-          ) {
+          const effectiveThresh = wl.includes(opp.id) && pt[opp.id] != null ? pt[opp.id] : notifyRef.current.threshold;
+          if (opp.netEdgePct >= effectiveThresh && !notifiedIdsRef.current.has(opp.id)) {
             notifiedIdsRef.current.add(opp.id);
             const n = new Notification(`Arb +${opp.netEdgePct.toFixed(1)}% detected`, {
               body: `${opp.question.slice(0, 80)}${opp.question.length > 80 ? "…" : ""}\nPoly ${fmtC(opp.poly.price)} · Kalshi ${fmtC(opp.kalshi.price)}`,
               tag: `arb-${opp.id}`,
             });
             n.onclick = () => window.focus();
-            // Persist to alert log
             const entry: AlertLogEntry = {
-              ts: new Date().toISOString(),
-              pair_id: opp.id,
-              question: opp.question,
-              net_edge_pct: opp.netEdgePct,
-              threshold: notifyRef.current.threshold,
-              direction: opp.direction,
-              poly_price: opp.poly.price,
-              kalshi_price: opp.kalshi.price,
+              ts: new Date().toISOString(), pair_id: opp.id, question: opp.question,
+              net_edge_pct: opp.netEdgePct, threshold: notifyRef.current.threshold,
+              direction: opp.direction, poly_price: opp.poly.price, kalshi_price: opp.kalshi.price,
             };
-            fetch("/api/alert-log", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(entry),
-            }).catch(() => {});
+            fetch("/api/alert-log", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(entry) }).catch(() => {});
             setAlertLog(prev => [entry, ...prev].slice(0, 50));
             setNewAlertCount(c => c + 1);
           }
         }
       }
 
-      // Persist history (fire-and-forget)
-      const ts = new Date().toISOString();
-      const entries: HistoryEntry[] = top.map(o => ({
-        ts,
-        pair_id: o.id,
-        kalshi_ticker: o.kalshi.ticker,
-        question: o.question,
-        net_edge_pct: o.netEdgePct,
-        edge_cents: o.edgeCents,
-        direction: o.direction,
-      }));
-      fetch("/api/arb/history", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(entries),
-      }).then(() => refreshRealHist()).catch(() => {});
+      // History was written server-side; refresh sparklines
+      refreshRealHist();
     } finally {
       setScanning(false);
     }
-  }, [kalshiCatsArr, refreshRealHist]);
+  }, [refreshRealHist]);
 
   const toggleKalshiCat = useCallback((c: string) => {
     setKalshiCatsArr(prev => {
@@ -1860,7 +1835,7 @@ export default function ArbPage() {
   }, [setKalshiCatsArr]);
 
   // Keep autoRunRef current so the countdown interval never captures a stale runScan
-  useEffect(() => { autoRunRef.current = runScan; }, [runScan]);
+  useEffect(() => { autoRunRef.current = () => runScan(false); }, [runScan]);
 
   // Countdown + auto-trigger
   useEffect(() => {
@@ -2032,7 +2007,7 @@ export default function ArbPage() {
                   {AUTO_INTERVALS.map(s => (
                     <button key={s} onClick={() => setAutoInterval(s)}
                       className={`h-6 px-1.5 rounded text-[10px] font-mono font-medium transition-colors ${autoInterval === s ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-                      {s < 60 ? `${s}s` : `${s / 60}m`}
+                      {s < 60 ? `${s}s` : s < 3600 ? `${s / 60}m` : `${s / 3600}h`}
                     </button>
                   ))}
                 </div>
@@ -2041,7 +2016,7 @@ export default function ArbPage() {
                 onClick={() => { setAutoScan(p => !p); setChangedCount(null); }}
                 className={`h-8 px-2.5 rounded-md text-xs font-medium border transition-colors flex items-center gap-1.5 ${autoScan ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
                 <span className={`size-1.5 rounded-full ${autoScan ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"}`}/>
-                {autoScan ? `Auto · ${countdown}s` : "Auto"}
+                {autoScan ? `Auto · ${countdown >= 3600 ? `${Math.floor(countdown / 3600)}h${Math.floor((countdown % 3600) / 60) > 0 ? `${Math.floor((countdown % 3600) / 60)}m` : ""}` : countdown >= 60 ? `${Math.floor(countdown / 60)}m${countdown % 60 > 0 ? `${countdown % 60}s` : ""}` : `${countdown}s`}` : "Auto"}
               </button>
             </div>
             <Button onClick={() => exportToCsv(filtered)} disabled={filtered.length === 0} size="sm" variant="outline" className="gap-1.5">
@@ -2067,10 +2042,15 @@ export default function ArbPage() {
                 </Button>
               );
             })()}
-            <Button onClick={runScan} disabled={scanning} size="sm" className="gap-1.5">
-              <Zap className="size-3.5"/>
-              {scanning ? "Scanning…" : "Run Scan"}
-            </Button>
+            <div className="flex flex-col items-end gap-0.5">
+              <Button onClick={() => runScan(false)} disabled={scanning} size="sm" className="gap-1.5">
+                <Zap className="size-3.5"/>
+                {scanning ? "Scanning…" : "Run Scan"}
+              </Button>
+              {lastScannedLabel && !scanning && (
+                <span className="text-[10px] text-muted-foreground font-mono">scanned {lastScannedLabel}</span>
+              )}
+            </div>
           </div>
         </div>
 
