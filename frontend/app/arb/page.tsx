@@ -142,7 +142,7 @@ function keywordScore(a: string, b: string): number {
   return hits / Math.max(wa.size, wb.size, 1);
 }
 
-function computeResDiff(polyText: string, kalshiText: string): { polyOnly: string[]; kalshiOnly: string[] } {
+function computeResDiff(polyText: string, kalshiText: string): { polyOnly: string[]; kalshiOnly: string[]; shared: string[] } {
   const STOP = new Set([
     "will","the","a","an","in","on","by","of","to","for","at","be","is","or","and",
     "if","this","that","market","resolve","resolved","yes","no","contract","event",
@@ -156,6 +156,7 @@ function computeResDiff(polyText: string, kalshiText: string): { polyOnly: strin
   return {
     polyOnly:   [...wa].filter(w => !wb.has(w)).slice(0, 14),
     kalshiOnly: [...wb].filter(w => !wa.has(w)).slice(0, 14),
+    shared:     [...wa].filter(w => wb.has(w)).slice(0, 10),
   };
 }
 
@@ -1140,17 +1141,17 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
               <AlertTriangle className="size-3 shrink-0"/> Verify both sides resolve identically before trading.
             </div>
             {!resLoading && resolution?.poly?.description && resolution?.kalshi?.rules_primary && (() => {
-              const { polyOnly, kalshiOnly } = computeResDiff(
+              const { polyOnly, kalshiOnly, shared } = computeResDiff(
                 resolution.poly.description,
                 [resolution.kalshi.rules_primary, resolution.kalshi.rules_secondary].filter(Boolean).join(" "),
               );
-              if (polyOnly.length === 0 && kalshiOnly.length === 0) return null;
+              if (polyOnly.length === 0 && kalshiOnly.length === 0 && shared.length === 0) return null;
               return (
-                <div className="mt-3 rounded-lg border border-border/50 bg-muted/30 p-3">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Key term diff</p>
+                <div className="mt-3 rounded-lg border border-border/50 bg-muted/30 p-3 space-y-2.5">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Key term diff</p>
                   <div className="grid grid-cols-2 gap-2 text-[10px]">
                     <div>
-                      <p className="text-blue-500 dark:text-blue-400 font-medium mb-1">Poly-only terms</p>
+                      <p className="text-blue-500 dark:text-blue-400 font-medium mb-1">Poly-only</p>
                       {polyOnly.length > 0
                         ? <div className="flex flex-wrap gap-1">{polyOnly.map(w => (
                             <span key={w} className="rounded px-1.5 py-0.5 bg-blue-500/10 text-blue-700 dark:text-blue-300 font-mono">{w}</span>
@@ -1159,7 +1160,7 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
                       }
                     </div>
                     <div>
-                      <p className="text-emerald-600 dark:text-emerald-400 font-medium mb-1">Kalshi-only terms</p>
+                      <p className="text-emerald-600 dark:text-emerald-400 font-medium mb-1">Kalshi-only</p>
                       {kalshiOnly.length > 0
                         ? <div className="flex flex-wrap gap-1">{kalshiOnly.map(w => (
                             <span key={w} className="rounded px-1.5 py-0.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-mono">{w}</span>
@@ -1168,6 +1169,19 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
                       }
                     </div>
                   </div>
+                  {shared.length > 0 && (
+                    <div className="border-t border-border/40 pt-2 text-[10px]">
+                      <p className="text-violet-600 dark:text-violet-400 font-medium mb-1">
+                        Shared terms
+                        <span className="ml-1.5 font-normal text-muted-foreground">— positive signal for true match</span>
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {shared.map(w => (
+                          <span key={w} className="rounded px-1.5 py-0.5 bg-violet-500/10 text-violet-700 dark:text-violet-300 font-mono">{w}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -1347,7 +1361,8 @@ export default function ArbPage() {
   const [minEdge,    setMinEdge]    = usePref<number>("arb:min-edge", 0);
   const [cat,        setCat]        = usePref<string>("arb:cat", "all");
   const [selected,   setSelected]   = useState<ScanOpp | null>(null);
-  const [minMatch,   setMinMatch]   = usePref<"all" | "M" | "H">("arb:min-match", "all");
+  const [minMatch,      setMinMatch]      = usePref<"all" | "M" | "H">("arb:min-match", "all");
+  const [minLiquidity,  setMinLiquidity]  = usePref<number>("arb:min-liq", 0);
   const [flashIds,   setFlashIds]   = useState<Set<string>>(new Set());
   const [kalshiCatsArr, setKalshiCatsArr] = usePref<string[]>("arb:kalshi-cats", [...KALSHI_CATS]);
   const kalshiCats = useMemo(() => new Set(kalshiCatsArr), [kalshiCatsArr]);
@@ -1606,8 +1621,9 @@ export default function ArbPage() {
       o.netEdgePct >= minEdge &&
       (cat === "all" || o.category === cat) &&
       (minMatch === "all" || (minMatch === "M" ? o.matchQuality.grade !== "L" : o.matchQuality.grade === "H")) &&
+      (minLiquidity === 0 || Math.min(o.poly.liquidity, o.kalshi.liquidity) >= minLiquidity) &&
       (!search || o.question.toLowerCase().includes(search.toLowerCase()))
-    ), [opps, minEdge, cat, minMatch, search, showWatchlist, watchlistIds]);
+    ), [opps, minEdge, cat, minMatch, minLiquidity, search, showWatchlist, watchlistIds]);
 
   const totalEdge = filtered.reduce((s, o) => s + o.capitalCap * o.netEdgePct / 100, 0);
   const avgEdge   = filtered.length ? filtered.reduce((s, o) => s + o.netEdgePct, 0) / filtered.length : 0;
@@ -1826,6 +1842,15 @@ export default function ArbPage() {
                 <button key={v} onClick={() => setMinMatch(v)}
                         className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${minMatch === v ? (active || "bg-foreground text-background border-foreground") : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
                   {label}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground font-medium mr-0.5">Liq:</span>
+              {([0, 500, 1000, 5000] as const).map(v => (
+                <button key={v} onClick={() => setMinLiquidity(v)}
+                        className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${minLiquidity === v ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
+                  {v === 0 ? "Any" : v >= 1000 ? `$${v / 1000}K` : `$${v}`}
                 </button>
               ))}
             </div>
