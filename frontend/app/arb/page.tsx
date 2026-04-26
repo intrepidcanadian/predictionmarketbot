@@ -374,7 +374,10 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
 
 // ── Card view ──────────────────────────────────────────────────────────────
 
-function CardView({ opps, onSelect }: { opps: ScanOpp[]; onSelect: (o: ScanOpp) => void }) {
+function CardView({ opps, onSelect, watchlistIds, onStar }: {
+  opps: ScanOpp[]; onSelect: (o: ScanOpp) => void;
+  watchlistIds: string[]; onStar: (id: string) => void;
+}) {
   const grouped = opps.reduce<Record<string, ScanOpp[]>>((acc, o) => {
     (acc[o.category] = acc[o.category] || []).push(o); return acc;
   }, {});
@@ -392,12 +395,24 @@ function CardView({ opps, onSelect }: { opps: ScanOpp[]; onSelect: (o: ScanOpp) 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {grouped[cat].sort((a, b) => b.netEdgePct - a.netEdgePct).map(opp => {
               const buyPoly = opp.direction === "buy_poly_sell_kalshi";
+              const watched = watchlistIds.includes(opp.id);
               return (
                 <button key={opp.id} onClick={() => onSelect(opp)}
                   className="text-left rounded-xl border bg-card p-4 hover:border-foreground/30 hover:shadow-sm transition-all">
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <p className="text-[13px] font-medium leading-snug line-clamp-2 flex-1">{opp.question}</p>
-                    <EdgePill pct={opp.netEdgePct}/>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <EdgePill pct={opp.netEdgePct}/>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={e => { e.stopPropagation(); onStar(opp.id); }}
+                        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); onStar(opp.id); } }}
+                        className={`rounded p-0.5 transition-colors hover:bg-muted cursor-pointer ${watched ? "text-amber-400" : "text-muted-foreground/30 hover:text-amber-400"}`}
+                      >
+                        <Star className={`size-3.5 ${watched ? "fill-amber-400" : ""}`}/>
+                      </div>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     {[
@@ -431,7 +446,10 @@ function CardView({ opps, onSelect }: { opps: ScanOpp[]; onSelect: (o: ScanOpp) 
 
 // ── Ticker view ────────────────────────────────────────────────────────────
 
-function TickerView({ opps, onSelect }: { opps: ScanOpp[]; onSelect: (o: ScanOpp) => void }) {
+function TickerView({ opps, onSelect, watchlistIds, onStar }: {
+  opps: ScanOpp[]; onSelect: (o: ScanOpp) => void;
+  watchlistIds: string[]; onStar: (id: string) => void;
+}) {
   const [feed, setFeed] = useState(() =>
     opps.slice(0, 8).map((o, i) => ({ ...o, ts: Date.now() - i * 24_000, _seq: i }))
   );
@@ -461,6 +479,7 @@ function TickerView({ opps, onSelect }: { opps: ScanOpp[]; onSelect: (o: ScanOpp
       <div className="divide-y max-h-[640px] overflow-y-auto">
         {feed.map((opp, idx) => {
           const buyPoly = opp.direction === "buy_poly_sell_kalshi";
+          const watched = watchlistIds.includes(opp.id);
           return (
             <button key={opp._seq} onClick={() => onSelect(opp)}
               className={`w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors ${idx === 0 ? "animate-pulse" : ""}`}>
@@ -476,6 +495,15 @@ function TickerView({ opps, onSelect }: { opps: ScanOpp[]; onSelect: (o: ScanOpp
                 </div>
               </div>
               <CategoryBadge cat={opp.category}/>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={e => { e.stopPropagation(); onStar(opp.id); }}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); onStar(opp.id); } }}
+                className={`ml-1 rounded p-0.5 transition-colors hover:bg-muted shrink-0 cursor-pointer ${watched ? "text-amber-400" : "text-muted-foreground/30 hover:text-amber-400"}`}
+              >
+                <Star className={`size-3.5 ${watched ? "fill-amber-400" : ""}`}/>
+              </div>
             </button>
           );
         })}
@@ -1595,8 +1623,8 @@ export default function ArbPage() {
         {!scanning && filtered.length > 0 && (
           <>
             {view === "table"  && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
-            {view === "cards"  && <CardView  opps={filtered} onSelect={selectOpp}/>}
-            {view === "ticker" && <TickerView opps={filtered} onSelect={selectOpp}/>}
+            {view === "cards"  && <CardView  opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
+            {view === "ticker" && <TickerView opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
             <p className="text-[10px] text-muted-foreground text-center mt-6 font-mono">
               {opps.length} pairs scanned · keyword-matched · net of Poly 2% + Kalshi 7% fees
             </p>

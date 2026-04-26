@@ -743,4 +743,35 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - Per-pair JSONL history cap still outstanding from A13 follow-ups
 
 ### Next milestone to pick up
-**A15** — to be defined. Candidates: star button in CardView, per-pair JSONL history cap, Kalshi position tracking, or LLM-assisted match scoring (display-only).
+**A15** — CardView/TickerView stars + per-pair JSONL history cap.
+
+---
+
+## 2026-04-26T13:30:00Z — milestone A15: CardView/TickerView stars + per-pair JSONL cap
+
+### What I did
+- Updated `CardView` to accept `watchlistIds: string[]` and `onStar: (id: string) => void` props; added star `div[role=button]` next to each card's EdgePill with filled-amber / faded-outline states; uses `e.stopPropagation()` so clicking the star doesn't open the detail drawer
+- Updated `TickerView` similarly: added `watchlistIds` + `onStar` props; added star `div[role=button]` at the end of each feed row
+- Used `<div role="button" tabIndex={0}>` (not `<button>`) for both to avoid the HTML spec violation of nesting interactive elements — confirmed no more `button > button` nesting via DOM check (`button button` selector returned 0)
+- Updated `CardView` and `TickerView` call sites in `ArbPage` to pass `watchlistIds={watchlistIds}` and `onStar={toggleWatchlist}`
+- Updated `app/api/arb/history/route.ts` POST handler: added per-pair pruning (group by `pair_id`, trim each to `MAX_ENTRIES_PER_PAIR = 100`) before applying the existing global cap (`MAX_TOTAL_ENTRIES = 500`); entries are re-sorted chronologically after per-pair trim, then sliced to global cap and rewritten
+
+### Tradeoffs / shortcuts
+- `div[role=button]` is the right solution here — the card outer element is a `<button>` and nesting another `<button>` inside is an HTML spec violation. A `div[role=button]` with `tabIndex={0}` and keyboard handler provides equivalent accessibility
+- Console showed stale hydration errors from a pre-fix page load; after reload the DOM confirmed `nestedButtonsFound: 0` and 17 `div[role=button]` elements in CardView
+- Per-pair pruning re-sorts all entries chronologically before writing — this is a full file rewrite but at ≤500 entries it's trivial for a localhost tool
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: ran scan → switched to Cards view → star icons visible on each card next to EdgePill; clicked star → localStorage `arb:watchlist` updated
+- DOM check: `document.querySelectorAll('button button').length === 0` (no nested buttons); `document.querySelectorAll('[role="button"]').length === 17` (stars present)
+- TickerView screenshot: star icons visible at the end of each feed row (amber filled for watched, faded outline otherwise)
+
+### Follow-ups for future runs
+- Could add a "Clear watchlist" button to reset all starred pairs in one click
+- Could preserve category/edge filters in the shared URL (for Copy Link)
+- JSONL per-pair pruning is now active; global cap still applies as a secondary safety net
+
+### Next milestone to pick up
+**A16** — to be defined. Candidates: "Clear watchlist" button, shared URL filter preservation, Kalshi position tracking, or LLM-assisted match scoring (display-only, not in trade path).

@@ -48,11 +48,22 @@ export async function POST(req: NextRequest) {
   const lines = body.map(e => JSON.stringify(e)).join("\n") + "\n";
   await fs.appendFile(HISTORY_FILE, lines, "utf-8");
 
-  // Prune if total exceeds cap — keep newest MAX_TOTAL_ENTRIES entries
+  // Prune: per-pair cap first, then global cap
   const all = await readAll();
-  if (all.length > MAX_TOTAL_ENTRIES) {
-    const pruned = all.slice(all.length - MAX_TOTAL_ENTRIES);
-    await fs.writeFile(HISTORY_FILE, pruned.map(e => JSON.stringify(e)).join("\n") + "\n", "utf-8");
+  const groups = new Map<string, HistoryEntry[]>();
+  for (const e of all) {
+    if (!groups.has(e.pair_id)) groups.set(e.pair_id, []);
+    groups.get(e.pair_id)!.push(e);
+  }
+  const anyPairOverCap = [...groups.values()].some(g => g.length > MAX_ENTRIES_PER_PAIR);
+  if (all.length > MAX_TOTAL_ENTRIES || anyPairOverCap) {
+    const trimmed: HistoryEntry[] = [];
+    for (const entries of groups.values()) {
+      trimmed.push(...entries.slice(-MAX_ENTRIES_PER_PAIR));
+    }
+    trimmed.sort((a, b) => a.ts.localeCompare(b.ts));
+    const final = trimmed.slice(-MAX_TOTAL_ENTRIES);
+    await fs.writeFile(HISTORY_FILE, final.map(e => JSON.stringify(e)).join("\n") + "\n", "utf-8");
   }
 
   return NextResponse.json({ appended: body.length });
