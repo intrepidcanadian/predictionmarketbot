@@ -5,6 +5,28 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight } from "lucide-react";
 
+// ── localStorage preference hook ───────────────────────────────────────────
+
+type SetState<T> = (v: T | ((prev: T) => T)) => void;
+
+function usePref<T>(key: string, init: T): [T, SetState<T>] {
+  const [val, setValRaw] = useState<T>(() => {
+    if (typeof window === "undefined") return init;
+    try {
+      const s = localStorage.getItem(key);
+      return s !== null ? (JSON.parse(s) as T) : init;
+    } catch { return init; }
+  });
+  const setVal: SetState<T> = useCallback((action) => {
+    setValRaw(prev => {
+      const next = typeof action === "function" ? (action as (p: T) => T)(prev) : action;
+      try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [key]);
+  return [val, setVal];
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const POLY_FEE   = 0.02;
@@ -1058,18 +1080,19 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
 export default function ArbPage() {
   const [opps,       setOpps]       = useState<ScanOpp[]>([]);
   const [scanning,   setScanning]   = useState(false);
-  const [view,       setView]       = useState<ViewMode>("table");
-  const [sortBy,     setSortBy]     = useState<SortBy>("edge");
+  const [view,       setView]       = usePref<ViewMode>("arb:view", "table");
+  const [sortBy,     setSortBy]     = usePref<SortBy>("arb:sort", "edge");
   const [search,     setSearch]     = useState("");
-  const [minEdge,    setMinEdge]    = useState(0);
-  const [cat,        setCat]        = useState("all");
+  const [minEdge,    setMinEdge]    = usePref<number>("arb:min-edge", 0);
+  const [cat,        setCat]        = usePref<string>("arb:cat", "all");
   const [selected,   setSelected]   = useState<ScanOpp | null>(null);
-  const [minMatch,   setMinMatch]   = useState<"all" | "M" | "H">("all");
+  const [minMatch,   setMinMatch]   = usePref<"all" | "M" | "H">("arb:min-match", "all");
   const [flashIds,   setFlashIds]   = useState<Set<string>>(new Set());
-  const [kalshiCats,   setKalshiCats]   = useState<Set<string>>(new Set(KALSHI_CATS));
+  const [kalshiCatsArr, setKalshiCatsArr] = usePref<string[]>("arb:kalshi-cats", [...KALSHI_CATS]);
+  const kalshiCats = useMemo(() => new Set(kalshiCatsArr), [kalshiCatsArr]);
   const [kalshiMeta,   setKalshiMeta]   = useState<{ count: number; illiquid: number } | null>(null);
   const [autoScan,     setAutoScan]     = useState(false);
-  const [autoInterval, setAutoInterval] = useState(120);
+  const [autoInterval, setAutoInterval] = usePref<number>("arb:auto-interval", 120);
   const [countdown,    setCountdown]    = useState(120);
   const [changedCount, setChangedCount] = useState<number | null>(null);
   const prevOppsRef = useRef<ScanOpp[]>([]);
@@ -1157,15 +1180,15 @@ export default function ArbPage() {
     } finally {
       setScanning(false);
     }
-  }, [kalshiCats]);
+  }, [kalshiCatsArr]);
 
-  const toggleKalshiCat = useCallback((cat: string) => {
-    setKalshiCats(prev => {
-      const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat); else next.add(cat);
-      return next;
+  const toggleKalshiCat = useCallback((c: string) => {
+    setKalshiCatsArr(prev => {
+      const s = new Set(prev);
+      if (s.has(c)) s.delete(c); else s.add(c);
+      return [...s];
     });
-  }, []);
+  }, [setKalshiCatsArr]);
 
   // Keep autoRunRef current so the countdown interval never captures a stale runScan
   useEffect(() => { autoRunRef.current = runScan; }, [runScan]);

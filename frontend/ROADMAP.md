@@ -26,3 +26,4 @@ Milestones are picked up one at a time by the hourly builder. Check off each whe
 - [x] **A7** — Auto-refresh scan: configurable interval (1m/2m/5m/10m) with countdown timer, auto toggle button, and "N changed" diff badge when results shift between scans
 - [x] **A8** — Pair match quality scoring: keyword overlap + date proximity scores combined into H/M/L grade badge shown in table column (sortable) and detail panel with progress-bar breakdown and contextual warning text
 - [x] **A9** — Min-match filter + history pruning: "Match: All / Med+ / High" filter pills in the filter row to hide false positives; JSONL history capped at 500 entries (prune on each POST)
+- [ ] **A10** — Persist filter preferences: view mode, sort column, minEdge, category pill, minMatch grade, Kalshi category selection, and auto-scan interval survive page reloads via localStorage
