@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History, Link2, Check } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History, Link2, Check, Star } from "lucide-react";
 
 // ── localStorage preference hook ───────────────────────────────────────────
 
@@ -295,9 +295,10 @@ function Sparkline({ data, w = 64, h = 18, className = "" }: { data: number[]; w
 
 // ── Table view ─────────────────────────────────────────────────────────────
 
-function TableView({ opps, onSelect, sortBy, setSortBy, flashIds }: {
+function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, onStar }: {
   opps: ScanOpp[]; onSelect: (o: ScanOpp) => void;
   sortBy: SortBy; setSortBy: (s: SortBy) => void; flashIds: Set<string>;
+  watchlistIds: string[]; onStar: (id: string) => void;
 }) {
   const sorted = [...opps].sort((a, b) =>
     sortBy === "edge"  ? b.netEdgePct - a.netEdgePct :
@@ -307,6 +308,7 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds }: {
   );
 
   const cols: { key: string; label: string; right?: boolean; sort?: SortBy }[] = [
+    { key: "star",   label: "" },
     { key: "edge",   label: "Edge",        sort: "edge" },
     { key: "match",  label: "Match",       sort: "match" as SortBy },
     { key: "market", label: "Market" },
@@ -340,6 +342,9 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds }: {
               return (
                 <tr key={opp.id} onClick={() => onSelect(opp)}
                     className={`hover:bg-muted/30 cursor-pointer transition-colors ${flashIds.has(opp.id) ? "bg-emerald-500/10" : ""}`}>
+                  <td className="pl-3 pr-1 py-2.5" onClick={e => { e.stopPropagation(); onStar(opp.id); }}>
+                    <Star className={`size-3.5 transition-colors ${watchlistIds.includes(opp.id) ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30 hover:text-amber-400"}`}/>
+                  </td>
                   <td className="px-3 py-2.5"><EdgePill pct={opp.netEdgePct}/></td>
                   <td className="px-3 py-2.5"><MatchBadge grade={opp.matchQuality.grade}/></td>
                   <td className="px-3 py-2.5 max-w-xs">
@@ -550,7 +555,7 @@ interface OrderbookData {
   kalshi: { yes_bid: number; yes_ask: number; no_bid: number; no_ask: number } | null;
 }
 
-function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
+function ArbDetail({ opp, onClose, isWatched, onStar }: { opp: ScanOpp; onClose: () => void; isWatched: boolean; onStar: () => void }) {
   const router = useRouter();
   const [capital,      setCapital]     = useState(1000);
   const [showConfirm,  setShowConfirm] = useState(false);
@@ -648,6 +653,13 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
             </div>
             <h2 className="text-base font-semibold leading-snug pr-2">{opp.question}</h2>
           </div>
+          <button
+            onClick={onStar}
+            title={isWatched ? "Remove from watchlist" : "Add to watchlist"}
+            className={`size-7 rounded-md hover:bg-muted grid place-items-center shrink-0 transition-colors ${isWatched ? "text-amber-400" : "text-muted-foreground"}`}
+          >
+            <Star className={`size-3.5 ${isWatched ? "fill-amber-400" : ""}`}/>
+          </button>
           <button
             onClick={() => {
               if (typeof navigator !== "undefined") {
@@ -1125,6 +1137,13 @@ export default function ArbPage() {
   const autoRunRef     = useRef<() => void>(() => {});
   const pendingPairRef = useRef<string | null>(null);
 
+  // Watchlist
+  const [watchlistIds,  setWatchlistIds]  = usePref<string[]>("arb:watchlist", []);
+  const [showWatchlist, setShowWatchlist] = usePref<boolean>("arb:show-watchlist", false);
+  const toggleWatchlist = useCallback((id: string) => {
+    setWatchlistIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }, [setWatchlistIds]);
+
   // Notification state
   const [notifyEnabled,   setNotifyEnabled]   = usePref<boolean>("arb:notify", false);
   const [notifyThreshold, setNotifyThreshold] = usePref<number>("arb:notify-thresh", 5);
@@ -1344,12 +1363,12 @@ export default function ArbPage() {
   const categories = ["all", ...Array.from(new Set(opps.map(o => o.category)))];
 
   const filtered = useMemo(() =>
-    opps.filter(o =>
+    (showWatchlist ? opps.filter(o => watchlistIds.includes(o.id)) : opps).filter(o =>
       o.netEdgePct >= minEdge &&
       (cat === "all" || o.category === cat) &&
       (minMatch === "all" || (minMatch === "M" ? o.matchQuality.grade !== "L" : o.matchQuality.grade === "H")) &&
       (!search || o.question.toLowerCase().includes(search.toLowerCase()))
-    ), [opps, minEdge, cat, minMatch, search]);
+    ), [opps, minEdge, cat, minMatch, search, showWatchlist, watchlistIds]);
 
   const totalEdge = filtered.reduce((s, o) => s + o.capitalCap * o.netEdgePct / 100, 0);
   const avgEdge   = filtered.length ? filtered.reduce((s, o) => s + o.netEdgePct, 0) / filtered.length : 0;
@@ -1516,11 +1535,25 @@ export default function ArbPage() {
             <p className="text-xs mt-1">Click Run Scan to discover live cross-venue opportunities</p>
           </div>
         )}
+        {opps.length > 0 && !scanning && showWatchlist && watchlistIds.length === 0 && (
+          <div className="text-center py-20 text-muted-foreground border border-dashed rounded-xl">
+            <Star className="size-8 mx-auto mb-3 opacity-30"/>
+            <p className="text-sm font-medium">No starred pairs yet</p>
+            <p className="text-xs mt-1">Click the ★ on any row to add a pair to your watchlist</p>
+          </div>
+        )}
         {scanning && <div className="flex flex-col gap-2">{[...Array(5)].map((_, i) => <div key={i} className="h-12 rounded-lg bg-muted animate-pulse"/>)}</div>}
 
         {/* Filter row */}
         {opps.length > 0 && !scanning && (
           <div className="flex items-center gap-3 mb-4 flex-wrap">
+            {/* Watchlist toggle */}
+            <button
+              onClick={() => setShowWatchlist(p => !p)}
+              className={`flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${showWatchlist ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
+              <Star className={`size-3 ${showWatchlist ? "fill-amber-400 text-amber-400" : ""}`}/>
+              Starred{watchlistIds.length > 0 ? ` (${watchlistIds.length})` : ""}
+            </button>
             <div className="inline-flex rounded-md border bg-card p-0.5">
               {([["table","Table","M3 6h18M3 12h18M3 18h18"],["cards","Cards","M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"],["ticker","Live","M3 12h4l3-9 4 18 3-9h4"]] as const).map(([v, label, path]) => (
                 <button key={v} onClick={() => setView(v as ViewMode)}
@@ -1561,7 +1594,7 @@ export default function ArbPage() {
         )}
         {!scanning && filtered.length > 0 && (
           <>
-            {view === "table"  && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds}/>}
+            {view === "table"  && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
             {view === "cards"  && <CardView  opps={filtered} onSelect={selectOpp}/>}
             {view === "ticker" && <TickerView opps={filtered} onSelect={selectOpp}/>}
             <p className="text-[10px] text-muted-foreground text-center mt-6 font-mono">
@@ -1571,7 +1604,7 @@ export default function ArbPage() {
         )}
       </div>
 
-      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)}/>}
+      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)}/>}
     </div>
   );
 }

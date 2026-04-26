@@ -700,3 +700,47 @@ All current milestones complete. Next run should define new A7+ milestones or co
 ### Follow-ups for future runs
 - Per-pair JSONL history cap to prevent one high-frequency pair from filling `arb-history.jsonl`
 - Could preserve the full query string (minEdge, category filter) in the shared URL so recipients see the same filtered view
+
+---
+
+## 2026-04-26T12:30:00Z — milestone A14: Pair watchlist
+
+### What I did
+- Added `Star` icon to lucide-react imports in `app/arb/page.tsx`
+- Added 2 new persisted state vars via `usePref`:
+  - `watchlistIds: string[]` ("arb:watchlist", default `[]`) — IDs of starred pairs
+  - `showWatchlist: boolean` ("arb:show-watchlist", default `false`) — watchlist filter mode
+- Added `toggleWatchlist(id)` useCallback that adds/removes an ID from `watchlistIds`
+- Updated `filtered` useMemo: when `showWatchlist === true`, pre-filters `opps` to only IDs in `watchlistIds` before applying the usual edge/category/match/search filters
+- Updated `TableView`:
+  - Added `watchlistIds: string[]` and `onStar: (id: string) => void` props
+  - Added a "star" column to `cols` (no header label) as the first column
+  - Each row has a clickable star `<td>` with `e.stopPropagation()` so clicking the star doesn't open the detail drawer; star renders filled amber when watched, faded otherwise
+- Updated `ArbDetail`:
+  - Added `isWatched: boolean` and `onStar: () => void` props
+  - Added a star button in the sticky header (between Copy Link and Close), with filled/outline styling matching the watch state
+- Added "Starred (N)" toggle button at the start of the filter row; highlighted amber when active; shows count when watchlist is non-empty
+- Added dedicated empty state: when `showWatchlist && watchlistIds.length === 0` shows "No starred pairs yet" prompt
+- Updated `TableView` and `ArbDetail` call sites to pass new props
+
+### Tradeoffs / shortcuts
+- Stars are only shown in TableView (not CardView/TickerView) — card and ticker views are primarily for browsing, not monitoring; star from the detail drawer works across all views
+- `showWatchlist` mode does not clear other filters (minEdge, category, match) — starred pairs still need to pass those filters; intentional so edge/quality thresholds remain active even in watchlist mode
+- Watchlist persists pair IDs; if a pair disappears from scan results (market closed), it just won't appear — no stale-data display needed since we don't cache scan results
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: ran scan → 21 results; switched to Table view → 21 star icons in tbody confirmed via DOM
+- Clicked first star → localStorage `arb:watchlist` updated to `["540820-KXTRUMPBULLCASECOMBO-27DEC-26"]`; star filled amber; "Starred (1)" button text updated
+- Clicked "Starred (1)" toggle → table filtered to 1 row; KPI shows "1 of 21 total"; localStorage `arb:show-watchlist` = true
+- Screenshot confirmed: "★ Starred (1)" highlighted amber in filter row, single row with filled gold star, correct pair name
+- No console errors
+
+### Follow-ups for future runs
+- Add star button to CardView cards (currently stars are table-only + drawer)
+- Consider a "clear watchlist" button for resetting all starred pairs
+- Per-pair JSONL history cap still outstanding from A13 follow-ups
+
+### Next milestone to pick up
+**A15** — to be defined. Candidates: star button in CardView, per-pair JSONL history cap, Kalshi position tracking, or LLM-assisted match scoring (display-only).
