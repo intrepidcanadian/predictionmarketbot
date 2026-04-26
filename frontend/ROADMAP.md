@@ -22,4 +22,4 @@ Milestones are picked up one at a time by the hourly builder. Check off each whe
 - [x] **A3** — Fee-adjusted net spread: display gross spread, Kalshi fee (~7% of profit), Poly spread cost (~1–2¢), and net spread after fees; add a break-even notional size calculator
 - [x] **A4** — Spread history: append each auto-scan result to `frontend/arb-history.jsonl`; show a sparkline or table of spread-over-time for tracked pairs
 - [x] **A5** — Kalshi coverage expansion: paginate Kalshi events (cursor), add category filter pills, filter out markets where yes_ask + no_ask > 1.10 (illiquid/mispriced), show market count badge
-- [ ] **A6** — Arb-to-rule bridge: "Create Rule" button on a selected pair pre-fills the rule builder (target from Polymarket market, trigger=price_cross, action=limit_order, guardrails with dry_run+require_manual_approval)
+- [x] **A6** — Arb-to-rule bridge: "Create Rule" button on a selected pair pre-fills the rule builder (target from Polymarket market, trigger=price_cross, action=limit_order, guardrails with dry_run+require_manual_approval)

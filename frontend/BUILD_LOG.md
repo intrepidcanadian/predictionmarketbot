@@ -425,3 +425,36 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ### Next milestone to pick up
 **A6** — Arb-to-rule bridge: "Create Rule" button on a selected pair pre-fills the rule builder
+
+---
+
+## 2026-04-26T04:30:00Z — milestone A6: Arb-to-rule bridge
+
+### What I did
+- Added `useRouter` + `Plus` / `ChevronRight` icon imports to `app/arb/page.tsx`
+- In `ArbDetail`: added `const router = useRouter()` and a "Create Rule from this arb" button (dashed emerald border, shown only when `opp.netEdgePct > 0`) that builds a URL with params: `from_arb=1`, `condition_id`, `token_id`, `side`, `price`, `kalshi`, `edge`, `question` (truncated to 100 chars)
+- Updated `app/rules/new/page.tsx`:
+  - Added `useEffect`, `Suspense` to React imports; `useSearchParams` to next/navigation imports
+  - Renamed inner component to `NewRuleForm`, wrapped in `<Suspense>` in the default export (required by Next.js 16 for `useSearchParams` on prerendered pages)
+  - `useEffect` on mount checks `from_arb=1`; pre-fills: name (`Arb: {question}`), slug, notes (Kalshi ticker + edge%), condition_id, token_id, side_label, trigger type=price_cross (threshold=buy_price, direction=below), action type=limit_order (BUY, price, size=$50, GTC), guardrails (dry_run=true, require_manual_approval=true)
+
+### Tradeoffs / shortcuts
+- Pre-fill action side is always "BUY" (both arb directions buy on Polymarket — just different token sides YES/NO); the "SELL" in the Strategy display is a UX framing, not the mechanical Polymarket action
+- Price threshold is the current mid price; user should adjust before saving if they want a limit entry at a different level
+- Size is hardcoded to $50 as a safe starting default; user edits before saving
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` — 35/35 pass
+- `bun run build` — exit code 0, all routes compile cleanly
+- Browser: /arb → Run Scan → click first row → scroll to bottom of drawer → "Create Rule from this arb" button visible (dashed emerald border, + icon)
+- Clicked button → navigated to /rules/new with form pre-filled: Name="Arb: Trump out as President before GTA VI?", ID=arb-trump-out-as-president-before-gta-vi, Notes="Arb with Kalshi KXTRUMPBULLCASECOMBO-27DEC-26 · net edge 38.25%", condition_id and token_id populated, trigger=price_cross threshold=0.4750 direction=below, action=limit_order BUY price=0.4750 size=$50 GTC
+- No console errors
+
+### Follow-ups for future runs
+- All A-series milestones (A1–A6) are now complete
+- Could add a price input override in the Create Rule button to let user set a custom entry threshold before navigating
+- Could prefill `disable_after` from the market's close_time (already available in opp.closes)
+
+### Next milestone to pick up
+All current milestones complete. Next run should define new A7+ milestones or consider: multi-leg rule support, Kalshi executor integration, or position reconciliation.
