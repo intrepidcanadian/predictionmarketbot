@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell } from "lucide-react";
 
 // ── localStorage preference hook ───────────────────────────────────────────
 
@@ -37,7 +37,8 @@ const CATEGORY_MAP: Record<string, string> = {
   Crypto: "Crypto", World: "Politics", Finance: "Finance",
 };
 const KALSHI_CATS = ["Politics", "Economics", "Financials", "Crypto", "World", "Finance"] as const;
-const AUTO_INTERVALS = [60, 120, 300, 600] as const;
+const AUTO_INTERVALS    = [60, 120, 300, 600] as const;
+const NOTIFY_THRESHOLDS = [5, 10, 20] as const;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -1098,6 +1099,36 @@ export default function ArbPage() {
   const prevOppsRef = useRef<ScanOpp[]>([]);
   const autoRunRef  = useRef<() => void>(() => {});
 
+  // Notification state
+  const [notifyEnabled,   setNotifyEnabled]   = usePref<boolean>("arb:notify", false);
+  const [notifyThreshold, setNotifyThreshold] = usePref<number>("arb:notify-thresh", 5);
+  const [notifyPerm, setNotifyPerm] = useState<NotificationPermission>("default");
+  const notifiedIdsRef = useRef<Set<string>>(new Set());
+  // Ref so runScan can read latest notify prefs without re-creating its callback
+  const notifyRef = useRef({ enabled: false, threshold: 5 });
+
+  // Init permission from browser on mount
+  useEffect(() => {
+    if (typeof Notification !== "undefined") setNotifyPerm(Notification.permission);
+  }, []);
+
+  // Keep notifyRef in sync
+  useEffect(() => {
+    notifyRef.current = { enabled: notifyEnabled, threshold: notifyThreshold };
+  }, [notifyEnabled, notifyThreshold]);
+
+  const toggleNotify = useCallback(async () => {
+    if (notifyEnabled) { setNotifyEnabled(false); return; }
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "denied") return;
+    if (Notification.permission === "default") {
+      const perm = await Notification.requestPermission();
+      setNotifyPerm(perm);
+      if (perm !== "granted") return;
+    }
+    setNotifyEnabled(true);
+  }, [notifyEnabled, setNotifyEnabled]);
+
   useEffect(() => {
     if (opps.length === 0) return;
     const id = setInterval(() => {
@@ -1160,6 +1191,27 @@ export default function ArbPage() {
       }
       prevOppsRef.current = top;
       setOpps(top);
+
+      // Browser notifications for new opportunities above threshold
+      if (
+        notifyRef.current.enabled &&
+        typeof Notification !== "undefined" &&
+        Notification.permission === "granted"
+      ) {
+        for (const opp of top) {
+          if (
+            opp.netEdgePct >= notifyRef.current.threshold &&
+            !notifiedIdsRef.current.has(opp.id)
+          ) {
+            notifiedIdsRef.current.add(opp.id);
+            const n = new Notification(`Arb +${opp.netEdgePct.toFixed(1)}% detected`, {
+              body: `${opp.question.slice(0, 80)}${opp.question.length > 80 ? "…" : ""}\nPoly ${fmtC(opp.poly.price)} · Kalshi ${fmtC(opp.kalshi.price)}`,
+              tag: `arb-${opp.id}`,
+            });
+            n.onclick = () => window.focus();
+          }
+        }
+      }
 
       // Persist history (fire-and-forget)
       const ts = new Date().toISOString();
@@ -1246,6 +1298,32 @@ export default function ArbPage() {
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground"/>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search markets…"
                      className="h-8 w-52 pl-8 pr-3 rounded-md border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring"/>
+            </div>
+            {/* Notify controls */}
+            <div className="flex items-center gap-1.5">
+              {notifyEnabled && (
+                <div className="flex items-center gap-1 bg-muted rounded-md px-1 h-8">
+                  {NOTIFY_THRESHOLDS.map(t => (
+                    <button key={t} onClick={() => setNotifyThreshold(t)}
+                      className={`h-6 px-1.5 rounded text-[10px] font-mono font-medium transition-colors ${notifyThreshold === t ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                      &gt;{t}%
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={toggleNotify}
+                disabled={notifyPerm === "denied"}
+                title={notifyPerm === "denied" ? "Notifications blocked by browser — check browser site settings" : "Alert when a new arb pair exceeds the threshold"}
+                className={`h-8 px-2.5 rounded-md text-xs font-medium border transition-colors flex items-center gap-1.5
+                  ${notifyEnabled
+                    ? "bg-violet-500/15 text-violet-700 dark:text-violet-400 border-violet-500/30"
+                    : notifyPerm === "denied"
+                    ? "opacity-50 cursor-not-allowed bg-background border-border text-muted-foreground"
+                    : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
+                <Bell className={`size-3 ${notifyEnabled ? "text-violet-500" : ""}`}/>
+                {notifyPerm === "denied" ? "Blocked" : notifyEnabled ? `Alert >${notifyThreshold}%` : "Notify"}
+              </button>
             </div>
             {/* Auto-scan controls */}
             <div className="flex items-center gap-1.5">
