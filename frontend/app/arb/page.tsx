@@ -15,6 +15,7 @@ const CATEGORY_MAP: Record<string, string> = {
   Crypto: "Crypto", World: "Politics", Finance: "Finance",
 };
 const KALSHI_CATS = ["Politics", "Economics", "Financials", "Crypto", "World", "Finance"] as const;
+const AUTO_INTERVALS = [60, 120, 300, 600] as const;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -996,8 +997,14 @@ export default function ArbPage() {
   const [cat,        setCat]        = useState("all");
   const [selected,   setSelected]   = useState<ScanOpp | null>(null);
   const [flashIds,   setFlashIds]   = useState<Set<string>>(new Set());
-  const [kalshiCats, setKalshiCats] = useState<Set<string>>(new Set(KALSHI_CATS));
-  const [kalshiMeta, setKalshiMeta] = useState<{ count: number; illiquid: number } | null>(null);
+  const [kalshiCats,   setKalshiCats]   = useState<Set<string>>(new Set(KALSHI_CATS));
+  const [kalshiMeta,   setKalshiMeta]   = useState<{ count: number; illiquid: number } | null>(null);
+  const [autoScan,     setAutoScan]     = useState(false);
+  const [autoInterval, setAutoInterval] = useState(120);
+  const [countdown,    setCountdown]    = useState(120);
+  const [changedCount, setChangedCount] = useState<number | null>(null);
+  const prevOppsRef = useRef<ScanOpp[]>([]);
+  const autoRunRef  = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (opps.length === 0) return;
@@ -1046,6 +1053,20 @@ export default function ArbPage() {
       }
       result.sort((a, b) => b.netEdgePct - a.netEdgePct);
       const top = result.slice(0, 25);
+
+      // Diff against previous scan for the "N changed" badge
+      if (prevOppsRef.current.length > 0) {
+        const prevIds = new Set(prevOppsRef.current.map(o => o.id));
+        const newIds  = new Set(top.map(o => o.id));
+        const moved   = top.filter(o => {
+          const prev = prevOppsRef.current.find(p => p.id === o.id);
+          return prev && Math.abs(prev.netEdgePct - o.netEdgePct) > 0.5;
+        }).length;
+        const added   = top.filter(o => !prevIds.has(o.id)).length;
+        const removed = [...prevIds].filter(id => !newIds.has(id)).length;
+        setChangedCount(moved + added + removed);
+      }
+      prevOppsRef.current = top;
       setOpps(top);
 
       // Persist history (fire-and-forget)
@@ -1077,6 +1098,26 @@ export default function ArbPage() {
     });
   }, []);
 
+  // Keep autoRunRef current so the countdown interval never captures a stale runScan
+  useEffect(() => { autoRunRef.current = runScan; }, [runScan]);
+
+  // Countdown + auto-trigger
+  useEffect(() => {
+    if (!autoScan) return;
+    setCountdown(autoInterval);
+    let c = autoInterval;
+    const id = setInterval(() => {
+      c -= 1;
+      setCountdown(c);
+      if (c <= 0) {
+        c = autoInterval;
+        setCountdown(autoInterval);
+        autoRunRef.current();
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [autoScan, autoInterval]);
+
   const categories = ["all", ...Array.from(new Set(opps.map(o => o.category)))];
 
   const filtered = useMemo(() =>
@@ -1099,14 +1140,38 @@ export default function ArbPage() {
             <div className="flex items-center gap-2 mb-1">
               <h1 className="text-2xl font-semibold tracking-tight">Arbitrage</h1>
               {opps.length > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 font-bold tracking-wider">LIVE</span>}
+              {changedCount !== null && changedCount > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 font-bold tracking-wider animate-pulse">
+                  {changedCount} changed
+                </span>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">Cross-venue spreads between Polymarket and Kalshi. Edge calculated net of fees (Poly 2% · Kalshi 7%).</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground"/>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search markets…"
                      className="h-8 w-52 pl-8 pr-3 rounded-md border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring"/>
+            </div>
+            {/* Auto-scan controls */}
+            <div className="flex items-center gap-1.5">
+              {autoScan && (
+                <div className="flex items-center gap-1 bg-muted rounded-md px-1 h-8">
+                  {AUTO_INTERVALS.map(s => (
+                    <button key={s} onClick={() => setAutoInterval(s)}
+                      className={`h-6 px-1.5 rounded text-[10px] font-mono font-medium transition-colors ${autoInterval === s ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                      {s < 60 ? `${s}s` : `${s / 60}m`}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => { setAutoScan(p => !p); setChangedCount(null); }}
+                className={`h-8 px-2.5 rounded-md text-xs font-medium border transition-colors flex items-center gap-1.5 ${autoScan ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
+                <span className={`size-1.5 rounded-full ${autoScan ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"}`}/>
+                {autoScan ? `Auto · ${countdown}s` : "Auto"}
+              </button>
             </div>
             <Button onClick={runScan} disabled={scanning} size="sm" className="gap-1.5">
               <Zap className="size-3.5"/>
