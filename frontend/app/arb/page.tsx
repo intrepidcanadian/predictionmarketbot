@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History, Link2, Check, Star } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History, Link2, Check, Star, X } from "lucide-react";
 
 // ── localStorage preference hook ───────────────────────────────────────────
 
@@ -1185,20 +1185,30 @@ export default function ArbPage() {
   const [newAlertCount, setNewAlertCount] = useState(0);
   const [showAlertLog,  setShowAlertLog]  = useState(false);
 
-  // Init permission from browser on mount; fetch alert log; capture ?pair= deep-link
+  // Init permission from browser on mount; fetch alert log; capture ?pair= + filter deep-link
   useEffect(() => {
     if (typeof Notification !== "undefined") setNotifyPerm(Notification.permission);
     fetch("/api/alert-log")
       .then(r => r.ok ? r.json() : [])
       .then(d => setAlertLog(d as AlertLogEntry[]))
       .catch(() => {});
-    const pairParam = new URLSearchParams(window.location.search).get("pair");
+    const sp = new URLSearchParams(window.location.search);
+    const pairParam = sp.get("pair");
     if (pairParam) {
       pendingPairRef.current = pairParam;
+      // Apply any filter params encoded in the shared URL
+      const urlMinEdge = sp.get("min_edge");
+      if (urlMinEdge !== null) setMinEdge(+urlMinEdge);
+      const urlMinMatch = sp.get("min_match");
+      if (urlMinMatch === "M" || urlMinMatch === "H") setMinMatch(urlMinMatch);
+      const urlCat = sp.get("cat");
+      if (urlCat) setCat(urlCat);
+      const urlView = sp.get("view");
+      if (urlView === "table" || urlView === "cards" || urlView === "ticker") setView(urlView as ViewMode);
       // Trigger a scan so the pending pair can be auto-selected once results arrive
       setTimeout(() => autoRunRef.current(), 100);
     }
-  }, []);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-select a pair from deep-link after the first scan populates opps
   useEffect(() => {
@@ -1210,15 +1220,20 @@ export default function ArbPage() {
     }
   }, [opps]);
 
-  // Wrapper that syncs selection to the URL
+  // Wrapper that syncs selection + active filters to the URL
   const selectOpp = useCallback((opp: ScanOpp | null) => {
     setSelected(opp);
     if (opp) {
-      window.history.replaceState(null, "", `/arb?pair=${encodeURIComponent(opp.id)}`);
+      const params = new URLSearchParams({ pair: opp.id });
+      if (minEdge > 0)        params.set("min_edge",   minEdge.toString());
+      if (minMatch !== "all") params.set("min_match",  minMatch);
+      if (cat !== "all")      params.set("cat",        cat);
+      if (view !== "table")   params.set("view",       view);
+      window.history.replaceState(null, "", `/arb?${params}`);
     } else {
       window.history.replaceState(null, "", "/arb");
     }
-  }, []);
+  }, [minEdge, minMatch, cat, view]);
 
   // Keep notifyRef in sync
   useEffect(() => {
@@ -1575,13 +1590,23 @@ export default function ArbPage() {
         {/* Filter row */}
         {opps.length > 0 && !scanning && (
           <div className="flex items-center gap-3 mb-4 flex-wrap">
-            {/* Watchlist toggle */}
-            <button
-              onClick={() => setShowWatchlist(p => !p)}
-              className={`flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${showWatchlist ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
-              <Star className={`size-3 ${showWatchlist ? "fill-amber-400 text-amber-400" : ""}`}/>
-              Starred{watchlistIds.length > 0 ? ` (${watchlistIds.length})` : ""}
-            </button>
+            {/* Watchlist toggle + clear */}
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={() => setShowWatchlist(p => !p)}
+                className={`flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${showWatchlist ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
+                <Star className={`size-3 ${showWatchlist ? "fill-amber-400 text-amber-400" : ""}`}/>
+                Starred{watchlistIds.length > 0 ? ` (${watchlistIds.length})` : ""}
+              </button>
+              {watchlistIds.length > 0 && (
+                <button
+                  onClick={() => { setWatchlistIds([]); setShowWatchlist(false); }}
+                  title="Clear watchlist"
+                  className="h-7 w-7 rounded-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center transition-colors">
+                  <X className="size-3"/>
+                </button>
+              )}
+            </div>
             <div className="inline-flex rounded-md border bg-card p-0.5">
               {([["table","Table","M3 6h18M3 12h18M3 18h18"],["cards","Cards","M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"],["ticker","Live","M3 12h4l3-9 4 18 3-9h4"]] as const).map(([v, label, path]) => (
                 <button key={v} onClick={() => setView(v as ViewMode)}

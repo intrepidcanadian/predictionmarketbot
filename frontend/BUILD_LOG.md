@@ -774,4 +774,34 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - JSONL per-pair pruning is now active; global cap still applies as a secondary safety net
 
 ### Next milestone to pick up
-**A16** — to be defined. Candidates: "Clear watchlist" button, shared URL filter preservation, Kalshi position tracking, or LLM-assisted match scoring (display-only, not in trade path).
+**A16** — Clear watchlist + filter URL preservation.
+
+---
+
+## 2026-04-26T14:30:00Z — milestone A16: Clear watchlist + filter URL preservation
+
+### What I did
+- Added `X` to lucide-react imports
+- Added "Clear watchlist" `×` button: sibling `<button title="Clear watchlist">` placed inside the same wrapper `<div>` as the "Starred (N)" toggle; only renders when `watchlistIds.length > 0`; clicking calls `setWatchlistIds([])` + `setShowWatchlist(false)` so the watchlist mode also exits
+- Updated `selectOpp` useCallback: when selecting a pair, serializes non-default filter state into the URL alongside `?pair=` — encodes `min_edge` (if > 0), `min_match` (if not "all"), `cat` (if not "all"), `view` (if not "table"); added `[minEdge, minMatch, cat, view]` to deps array
+- Updated mount `useEffect`: reads `URLSearchParams` for the filter params `min_edge`, `min_match`, `cat`, `view` when a `?pair=` deep-link is detected; applies them via their `usePref` setters (also writes to localStorage) before triggering the auto-scan
+
+### Tradeoffs / shortcuts
+- Filter params only encode non-default values to keep URLs short; defaults (edge=0, match=all, cat=all, view=table) are omitted
+- `selectOpp` now has `[minEdge, minMatch, cat, view]` in its dep array — this creates a new function ref on any filter change, passing new props to the three view components. React re-renders are cheap here (no heavy computation in the views)
+- `showWatchlist` and `sortBy` are NOT included in the shared URL — they're session-level preferences, not part of the "this specific opportunity" context
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` — 35/35 pass
+- Browser: ran scan → clicked "Med+" → selected first table row → URL updated to `?pair=540820-KXFEDEND-29-JAN20&min_match=M` (filter param encoded)
+- Browser: "Starred (2)" button had X sibling → clicked X → watchlist cleared to `[]`, clear button disappeared, "Starred" text lost count suffix, `showWatchlist` reset to false, localStorage confirmed
+- Copy Link button present in drawer; `window.location.href` = full URL with filter params
+
+### Follow-ups for future runs
+- Could include `sortBy` in the shared URL if users frequently share by match-sorted views
+- Could add a "Select all / Clear all" toggle for Kalshi category pills
+- LLM-assisted match scoring (display-only) is the next high-value improvement for reducing false positives
+
+### Next milestone to pick up
+**A17** — to be defined. Candidates: LLM-assisted match scoring (display-only similarity between market questions, not in trade path); Kalshi position tracking; Select all / Clear all for Kalshi category pills.
