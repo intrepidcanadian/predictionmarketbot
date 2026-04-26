@@ -23,4 +23,4 @@ Milestones are picked up one at a time by the hourly builder. Check off each whe
 - [x] **A4** — Spread history: append each auto-scan result to `frontend/arb-history.jsonl`; show a sparkline or table of spread-over-time for tracked pairs
 - [x] **A5** — Kalshi coverage expansion: paginate Kalshi events (cursor), add category filter pills, filter out markets where yes_ask + no_ask > 1.10 (illiquid/mispriced), show market count badge
 - [x] **A6** — Arb-to-rule bridge: "Create Rule" button on a selected pair pre-fills the rule builder (target from Polymarket market, trigger=price_cross, action=limit_order, guardrails with dry_run+require_manual_approval)
-- [ ] **A7** — Auto-refresh scan: configurable interval (1m/2m/5m/10m) with countdown timer, auto toggle button, and "N changed" diff badge when results shift between scans
+- [x] **A7** — Auto-refresh scan: configurable interval (1m/2m/5m/10m) with countdown timer, auto toggle button, and "N changed" diff badge when results shift between scans

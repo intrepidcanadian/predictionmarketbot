@@ -458,3 +458,40 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ### Next milestone to pick up
 All current milestones complete. Next run should define new A7+ milestones or consider: multi-leg rule support, Kalshi executor integration, or position reconciliation.
+
+---
+
+## 2026-04-26T05:30:00Z — milestone A7: Auto-refresh scan
+
+### What I did
+- Added `AUTO_INTERVALS = [60, 120, 300, 600]` constant
+- Added state in `ArbPage`: `autoScan`, `autoInterval` (default 120s), `countdown`, `changedCount`
+- Added refs: `prevOppsRef` (tracks last scan's opps for diff), `autoRunRef` (avoids stale closure in setInterval)
+- Added `useEffect` to keep `autoRunRef.current` in sync with `runScan` whenever `kalshiCats` changes
+- Added countdown `useEffect`: 1-second `setInterval` that decrements `countdown` and fires `autoRunRef.current()` when it reaches 0, then resets to `autoInterval` — restarts cleanly when `autoScan` or `autoInterval` changes
+- Updated `runScan`: after computing `top`, diffs against `prevOppsRef.current` — counts pairs where edge moved >0.5% ("moved"), new pairs ("added"), and disappeared pairs ("removed") — sets `changedCount` (only after first scan so it doesn't fire on initial load)
+- UI changes in page header:
+  - Interval pill group (1m/2m/5m/10m) visible only when `autoScan` is on, highlighted pill = current interval
+  - "Auto" toggle button: green pulsing dot + "Auto · Xs" countdown when on; muted when off
+  - Amber "N changed" pulsing badge next to LIVE badge after any scan that detected drift
+
+### Tradeoffs / shortcuts
+- `autoRunRef` pattern avoids restarting the countdown interval every time `kalshiCats` changes (which would happen if `runScan` were a direct dep of the countdown useEffect)
+- "N changed" count is a rough heuristic (>0.5% edge move = "changed"); pairs that appear/disappear are also counted — over-counts if the same market re-matches a different Kalshi ticker
+- The badge clears when Auto is toggled off (via `setChangedCount(null)` in the toggle handler)
+- Countdown display shows seconds ("Auto · 98s") for all intervals — could show "1m 38s" for longer intervals but seconds is clearer for the 1m/2m use case
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: `/arb` — clicked "Auto" button → green pulsing dot appeared, "Auto · 98s" countdown text, interval pills (1m/2m/5m/10m) appeared to the left; screenshot confirms layout
+- DOM eval: `btns.map(b => b.textContent)` shows ["1m", "2m", "5m", "10m", "Auto · 117s", "Run Scan", …] ✓
+- No console errors
+
+### Follow-ups for future runs
+- Could clear the "N changed" badge automatically after N seconds (currently persists until next scan or toggle)
+- Could show countdown as "Xm Ys" for intervals ≥60s for readability
+- Could add an "auto-open best opportunity" mode: when auto-scan fires and changedCount > 0, auto-select the top opp
+
+### Next milestone to pick up
+**A8** — to be defined. Candidates: pair match quality scoring (date proximity + title similarity), Kalshi position tracking, or JSONL history pruning (keep last N entries per pair).
