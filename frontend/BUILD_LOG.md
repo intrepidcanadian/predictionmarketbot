@@ -562,3 +562,34 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A10** — to be defined. Candidates: persist filter preferences (minMatch, minEdge) in localStorage; Kalshi position tracking; JSONL per-pair cap.
+
+---
+
+## 2026-04-26T08:30:00Z — milestone A10: Persist filter preferences + architecture redesign
+
+### What I did
+- Added `usePref<T>(key, init)` hook to `app/arb/page.tsx` — localStorage-backed `useState` drop-in; reads on mount (SSR-safe), writes on every setter call; supports functional updates
+- Wired `usePref` for 7 state vars: `view`, `sortBy`, `minEdge`, `cat`, `minMatch`, `kalshiCatsArr` (array, derived to Set via useMemo), `autoInterval`
+- Not persisted: `opps`, `scanning`, `search`, `selected`, `flashIds`, `kalshiMeta`, `autoScan`, `countdown`, `changedCount` — these are session-specific or transient UI state
+- Updated `toggleKalshiCat` to accept a string arg `c` (renamed from `cat` to avoid shadowing), use `setKalshiCatsArr` with functional update
+- Fixed `runScan` dep array: `[kalshiCatsArr]` (the primitive array) instead of `[kalshiCats]` (the derived Set object, which would be a new ref every render)
+- Rewrote `app/architecture/page.tsx`: replaced monospace `<pre>` ASCII art diagram with layered colour-coded tier cards — blue (external services), purple (route handlers), teal/amber split (frontend pages / filesystem), rose (executor + MCP sub-card), constraints panel with bolded keywords
+- ROADMAP.md: added and checked A10
+
+### Tradeoffs / shortcuts
+- `usePref` writes on every setter call (not debounced) — fine for infrequent preference changes
+- `kalshiCats` is derived via `useMemo` from `kalshiCatsArr`; this means `runScan` reads the latest set via closure without needing it in its dep array (the array dep is stable)
+- Architecture page uses `dangerouslySetInnerHTML` only for bolding "never/may/always" in static constraint strings — content is hardcoded, no XSS vector
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` — 35/35 pass
+- Browser: localStorage round-trip confirmed (set "arb:view" → JSON.parse reads back "cards")
+- Browser: /architecture shows full 5-tier diagram, Executor+MCP card, constraints panel — no console errors
+
+### Follow-ups for future runs
+- Could clear stale localStorage keys on version bump (e.g. if KALSHI_CATS changes)
+- Architecture page arrow SVG could use animated dashes for a live-data feel
+
+### Next milestone to pick up
+**A11** — to be defined. Candidates: Kalshi position tracking; JSONL per-pair history cap; /arb URL-param shareable state (encode active filters into query string).
