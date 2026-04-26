@@ -319,6 +319,8 @@ function Sparkline({ data, w = 64, h = 18, className = "" }: { data: number[]; w
 }
 
 function SpreadChart({ entries }: { entries: HistoryEntry[] }) {
+  const [hovered, setHovered] = useState<number | null>(null);
+
   if (entries.length < 2) return null;
   const ordered = [...entries].reverse(); // oldest-first for left→right rendering
   const values  = ordered.map(e => e.net_edge_pct);
@@ -346,7 +348,8 @@ function SpreadChart({ entries }: { entries: HistoryEntry[] }) {
   const dotR      = ordered.length <= 10 ? 2 : 1.5;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}
+         onMouseLeave={() => setHovered(null)}>
       {yTicks.map((v, i) => (
         <line key={i} x1={PAD.left} y1={py(v)} x2={PAD.left + cw} y2={py(v)}
           stroke="currentColor" strokeOpacity="0.07" strokeWidth="0.5"/>
@@ -359,8 +362,12 @@ function SpreadChart({ entries }: { entries: HistoryEntry[] }) {
         fill={lineColor} opacity="0.1"/>
       <polyline points={polyPts} fill="none" stroke={lineColor} strokeWidth="1.5"
         strokeLinecap="round" strokeLinejoin="round"/>
+      {/* dots: transparent r=6 hit target + visible dot that grows on hover */}
       {ordered.map((e, i) => (
-        <circle key={i} cx={px(times[i])} cy={py(e.net_edge_pct)} r={dotR} fill={lineColor}/>
+        <g key={i} style={{ cursor: "crosshair" }} onMouseEnter={() => setHovered(i)}>
+          <circle cx={px(times[i])} cy={py(e.net_edge_pct)} r={6} fill="transparent"/>
+          <circle cx={px(times[i])} cy={py(e.net_edge_pct)} r={hovered === i ? 3.5 : dotR} fill={lineColor}/>
+        </g>
       ))}
       {yTicks.map((v, i) => (
         <text key={i} x={PAD.left - 3} y={py(v) + 3} textAnchor="end"
@@ -370,6 +377,25 @@ function SpreadChart({ entries }: { entries: HistoryEntry[] }) {
       ))}
       <text x={PAD.left} y={H - 5} textAnchor="start" fontSize="7" fill="currentColor" opacity="0.45">{fmtT(minT)}</text>
       <text x={PAD.left + cw} y={H - 5} textAnchor="end" fontSize="7" fill="currentColor" opacity="0.45">{fmtT(maxT)}</text>
+      {/* hover tooltip */}
+      {hovered !== null && (() => {
+        const e  = ordered[hovered];
+        const cx = px(times[hovered]);
+        const cy = py(e.net_edge_pct);
+        const label = new Date(e.ts).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        const edge  = `${e.net_edge_pct >= 0 ? "+" : ""}${e.net_edge_pct.toFixed(2)}%`;
+        const tw = 88, th = 30;
+        const tx = cx + tw + 8 > W - PAD.right ? cx - tw - 8 : cx + 8;
+        const ty = cy - th - 6 < PAD.top        ? cy + 6       : cy - th - 6;
+        return (
+          <g style={{ pointerEvents: "none" }}>
+            <rect x={tx} y={ty} width={tw} height={th} rx="3"
+              style={{ fill: "hsl(var(--card))", stroke: "currentColor", strokeWidth: 0.5, strokeOpacity: 0.2 }}/>
+            <text x={tx + 5} y={ty + 11} fontSize="7" fill="currentColor" opacity="0.55">{label}</text>
+            <text x={tx + 5} y={ty + 23} fontSize="9" fontWeight="600" fill={lineColor}>{edge}</text>
+          </g>
+        );
+      })()}
     </svg>
   );
 }

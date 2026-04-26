@@ -1260,4 +1260,29 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - Could add a tooltip on hover over data dots showing exact timestamp + edge for that scan
 
 ### Next milestone to pick up
-**A31** — to be defined. Candidates: Kalshi position tracking; pair score vs spread correlation scatter; tooltip on SpreadChart data points.
+**A32** — to be defined. Candidates: Kalshi position tracking; pair score vs spread correlation scatter; batch match scoring UI improvements.
+
+---
+
+## 2026-04-27T05:00:00Z — milestone A31: SpreadChart hover tooltip
+
+### What I did
+- Added `useState<number | null>(null)` for `hovered` index tracking in `SpreadChart`
+- Wrapped each data dot in a `<g key={i} style={{cursor:"crosshair"}} onMouseEnter={() => setHovered(i)}>` group containing: (1) a transparent `r=6` hit-target circle for reliable mouse capture, (2) a visible dot that grows from `r=1.5` to `r=3.5` on hover
+- Added `onMouseLeave={() => setHovered(null)}` to the outer `<svg>` element to clear hover state when mouse leaves chart
+- Rendered a floating SVG tooltip box (IIFE pattern) when `hovered !== null`: 88×30 px rect with `fill:"hsl(var(--card))"` background, date+time label in fontSize=7, `±X.XX%` edge value in fontSize=9 fontWeight=600 colored to match the line
+- Edge-aware tooltip placement: flips left when `cx + tw + 8 > W - PAD.right`, flips down when `cy - th - 6 < PAD.top`
+- Tooltip rendered in a `<g style={{pointerEvents:"none"}}>` overlay to avoid interfering with dot hover events
+
+### Tradeoffs / shortcuts
+- Tooltip uses SVG `<rect>` + `<text>` rather than HTML overlay — keeps all rendering within the SVG coordinate system, no need for `getBoundingClientRect` or portal
+- `hsl(var(--card))` for tooltip background uses the shadcn/ui design token, so it adapts to light/dark mode automatically
+- Hit-target radius of 6px is generous on a 400px-wide chart with up to 29 points (~13px spacing) — at high density some targets will overlap, but in practice arb history rarely exceeds 30 entries
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser DOM inspection: `circleCount: 58, groupCount: 29` (2 circles per entry — hit target + visible dot); correct SVG structure confirmed
+
+### Next milestone to pick up
+**A32** — Candidates: Kalshi position tracking; pair score vs spread correlation scatter; batch match scoring UI improvements.
