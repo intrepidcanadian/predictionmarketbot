@@ -1365,3 +1365,38 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A36** — Candidates: system cron setup + scan log viewer; pair watchlist sync to server (persist across devices); improved false-positive triage (side-by-side resolution diff in table row).
+
+---
+
+## 2026-04-27T07:00:00Z — milestone A36: Inline row quick-peek with resolution diff
+
+### What I did
+- Added `ChevronDown` to lucide-react imports
+- Added 4 state/ref items to `TableView`: `expandedId: string | null`, `expandLoading: boolean`, `expandResData = useRef<Map<string, ResolutionData | null>>(new Map())`, `expandResVersion: number`
+- Added `handleExpandToggle(e, opp)`: stops propagation, toggles `expandedId`, lazily fetches `/api/arb/resolution?poly_slug=...&kalshi_ticker=...` on first expand; result is cached in `expandResData` ref; `expandResVersion` is bumped to trigger re-render
+- Wrapped each `<tr>` in a `<React.Fragment key={opp.id}>` to allow the sibling expansion row
+- Replaced the decorative `>` SVG chevron in the last column with a `<ChevronDown>` that rotates `-rotate-90` when collapsed and becomes upright when expanded; click calls `handleExpandToggle`, stopping propagation so the row-click drawer doesn't also fire
+- Added expansion `<tr>` (sibling to main row, inside Fragment) rendered when `expandedId === opp.id`:
+  - 2-column grid: **Polymarket** (blue header) shows full question + first 400 chars of description; **Kalshi** (emerald header) shows full title + first 400 chars of rules_primary; loading skeleton while fetch is in-flight
+  - 3-column key-term diff using existing `computeResDiff`: Poly-only (blue), Kalshi-only (emerald), Shared (violet); each column shows up to 6 tokens
+  - Amber "Verify resolution criteria match" warning row + "Open full →" button (calls `onSelect(opp)`) at the bottom
+
+### Tradeoffs / shortcuts
+- Resolution fetch is lazy and per-expand; no pre-fetching at scan time — avoids 25+ API calls on every scan
+- Cache lives in a `useRef` inside `TableView`; survives re-renders but resets on page reload (fine — resolution text rarely changes mid-session and the API has 5-min ISR cache)
+- `expandResVersion` state is used as a read-dependency in the render loop (`expandResVersion >= 0` tautology) so React knows to re-render when the ref map is updated — standard ref-backed state pattern
+- Only one row expands at a time; `expandLoading` is a single boolean (not per-row), which is correct since only one expand can be in-flight at once
+
+### Verified by
+- `node_modules/.bin/tsc --noEmit` — exit 0, no errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: page loaded with 25 scan results; clicked last cell of row 1 → tbody grew from 25 to 26 rows; expansion row showed "POLYMARKET / GTA VI released before June 2026?" vs "KALSHI / More tech layoffs in 2026 than in 2025?"; key-term diff showed Poly-only: grand, theft, auto, officially, released; Kalshi-only: layoffs, sector, resolves; Shared: 2026, count, information — clear false positive visible at a glance
+- Screenshot confirmed: amber warning + 3-column diff rendered correctly; chevron rotated to ⌄ on expanded row
+
+### Follow-ups for future runs
+- System cron setup + scan log viewer — wire a cron to `POST /api/arb/scan` and show a "last N scans" log in the UI
+- Pair watchlist sync to server — persist starred IDs to a server-side file so they survive across devices
+- Could also expand to Cards view (currently only TableView has the inline peek)
+
+### Next milestone to pick up
+**A37** — Candidates: system cron setup + scan log viewer; server-persisted watchlist.
