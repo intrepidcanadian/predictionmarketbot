@@ -320,12 +320,14 @@ function Sparkline({ data, w = 64, h = 18, className = "" }: { data: number[]; w
 
 // ── Table view ─────────────────────────────────────────────────────────────
 
-function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, onStar, aiScoreCache, aiScoreVersion }: {
+function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, onStar, aiScoreCache, aiScoreVersion, realHistRef, histVersion }: {
   opps: ScanOpp[]; onSelect: (o: ScanOpp) => void;
   sortBy: SortBy; setSortBy: (s: SortBy) => void; flashIds: Set<string>;
   watchlistIds: string[]; onStar: (id: string) => void;
   aiScoreCache?: React.MutableRefObject<Map<string, AiMatch>>;
   aiScoreVersion?: number;
+  realHistRef?: React.MutableRefObject<Map<string, number[]>>;
+  histVersion?: number;
 }) {
   const sorted = [...opps].sort((a, b) =>
     sortBy === "edge"  ? b.netEdgePct - a.netEdgePct :
@@ -348,7 +350,7 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
     { key: "spread", label: "Δ¢",          right: true },
     { key: "size",   label: "Cap",         right: true, sort: "size" },
     { key: "closes", label: "Closes",      right: true, sort: "closes" },
-    { key: "trend",  label: "30m",         right: true },
+    { key: "trend",  label: (histVersion ?? 0) > 0 ? "Trend ●" : "Trend", right: true },
   ];
 
   return (
@@ -400,7 +402,7 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
                   <td className="px-3 py-2.5 text-right font-mono tabular-nums">{opp.edgeCents}¢</td>
                   <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">{fmtUsd(opp.capitalCap)}</td>
                   <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">{timeUntil(opp.closes)}</td>
-                  <td className="px-3 py-2.5 text-right"><Sparkline data={opp.history} className="w-16 h-4 inline-block text-emerald-600 dark:text-emerald-400"/></td>
+                  <td className="px-3 py-2.5 text-right"><Sparkline data={realHistRef?.current?.get(opp.id) ?? opp.history} className="w-16 h-4 inline-block text-emerald-600 dark:text-emerald-400"/></td>
                   <td className="pr-3 text-muted-foreground">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3.5"><path d="M9 5l7 7-7 7"/></svg>
                   </td>
@@ -416,9 +418,10 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
 
 // ── Card view ──────────────────────────────────────────────────────────────
 
-function CardView({ opps, onSelect, watchlistIds, onStar }: {
+function CardView({ opps, onSelect, watchlistIds, onStar, realHistRef }: {
   opps: ScanOpp[]; onSelect: (o: ScanOpp) => void;
   watchlistIds: string[]; onStar: (id: string) => void;
+  realHistRef?: React.MutableRefObject<Map<string, number[]>>;
 }) {
   const grouped = opps.reduce<Record<string, ScanOpp[]>>((acc, o) => {
     (acc[o.category] = acc[o.category] || []).push(o); return acc;
@@ -476,7 +479,7 @@ function CardView({ opps, onSelect, watchlistIds, onStar }: {
                   <div className="flex items-center justify-between text-[10px] text-muted-foreground border-t pt-2">
                     <span>Cap: <span className="font-mono text-foreground">{fmtUsd(opp.capitalCap)}</span></span>
                     <span>Closes: <span className="font-mono text-foreground">{timeUntil(opp.closes)}</span></span>
-                    <Sparkline data={opp.history} className="w-12 h-3 text-emerald-600 dark:text-emerald-400"/>
+                    <Sparkline data={realHistRef?.current?.get(opp.id) ?? opp.history} className="w-12 h-3 text-emerald-600 dark:text-emerald-400"/>
                   </div>
                 </div>
               );
@@ -1467,6 +1470,24 @@ export default function ArbPage() {
   const cancelScoringRef  = useRef(false);
   const scoringActiveRef  = useRef(false);
 
+  // Real history sparklines — populated from arb-history.jsonl on mount + after each scan
+  const realHistRef = useRef<Map<string, number[]>>(new Map());
+  const [histVersion, setHistVersion] = useState(0);
+  const refreshRealHist = useCallback(async () => {
+    try {
+      const raw: HistoryEntry[] = await fetch("/api/arb/history").then(r => r.ok ? r.json() : []);
+      const m = new Map<string, number[]>();
+      for (const e of raw) {
+        if (!m.has(e.pair_id)) m.set(e.pair_id, []);
+        const arr = m.get(e.pair_id)!;
+        if (arr.length < 15) arr.push(e.net_edge_pct);
+      }
+      for (const [k, arr] of m) m.set(k, arr.reverse());
+      realHistRef.current = m;
+      setHistVersion(v => v + 1);
+    } catch {}
+  }, []);
+
   // Per-pair alert thresholds (starred pairs can override global notify threshold)
   const [pairThresholds, setPairThresholds] = usePref<Record<string, number>>("arb:pair-thresholds", {});
   const setPairThreshold = useCallback((id: string, thresh: number | null) => {
@@ -1499,9 +1520,10 @@ export default function ArbPage() {
   const [newAlertCount, setNewAlertCount] = useState(0);
   const [showAlertLog,  setShowAlertLog]  = useState(false);
 
-  // Init permission from browser on mount; fetch alert log + AI score cache; capture ?pair= + filter deep-link
+  // Init permission from browser on mount; fetch alert log + AI score cache; real history cache; capture ?pair= + filter deep-link
   useEffect(() => {
     if (typeof Notification !== "undefined") setNotifyPerm(Notification.permission);
+    refreshRealHist();
     fetch("/api/alert-log")
       .then(r => r.ok ? r.json() : [])
       .then(d => setAlertLog(d as AlertLogEntry[]))
@@ -1702,11 +1724,11 @@ export default function ArbPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(entries),
-      }).catch(() => {});
+      }).then(() => refreshRealHist()).catch(() => {});
     } finally {
       setScanning(false);
     }
-  }, [kalshiCatsArr]);
+  }, [kalshiCatsArr, refreshRealHist]);
 
   const toggleKalshiCat = useCallback((c: string) => {
     setKalshiCatsArr(prev => {
@@ -2080,8 +2102,8 @@ export default function ArbPage() {
         )}
         {!scanning && filtered.length > 0 && (
           <>
-            {view === "table"  && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion}/>}
-            {view === "cards"  && <CardView  opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
+            {view === "table"  && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion} realHistRef={realHistRef} histVersion={histVersion}/>}
+            {view === "cards"  && <CardView  opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist} realHistRef={realHistRef}/>}
             {view === "ticker" && <TickerView opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
             <p className="text-[10px] text-muted-foreground text-center mt-6 font-mono">
               {opps.length} pairs scanned · keyword-matched · net of Poly 2% + Kalshi 7% fees

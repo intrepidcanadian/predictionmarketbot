@@ -1164,3 +1164,38 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A28** — to be defined. Candidates: Kalshi position tracking; JSONL history chart improvements (per-pair mini-chart in table); pair score vs spread correlation view.
+
+---
+
+## 2026-04-27T02:00:00Z — milestone A28: Real history sparklines
+
+### What I did
+- Added `realHistRef = useRef<Map<string, number[]>>(new Map())` and `[histVersion, setHistVersion] = useState(0)` to `ArbPage`
+- Added `refreshRealHist` useCallback (empty deps, stable): fetches `GET /api/arb/history` (all entries, newest-first), groups by `pair_id` capped at 15 entries per pair, reverses each array to oldest-first, stores in `realHistRef`, increments `histVersion`
+- Called `refreshRealHist()` in the mount `useEffect` (alongside alert log + AI cache fetches) to hydrate sparklines from history written in previous sessions
+- Called `refreshRealHist()` in `runScan` via `.then()` on the history POST — so sparklines update after each scan once the POST completes; added `refreshRealHist` to `runScan`'s deps array
+- Updated `TableView` props: added `realHistRef` and `histVersion`; updated "30m" column label to `(histVersion ?? 0) > 0 ? "Trend ●" : "Trend"` — the ● dot signals real history is loaded
+- Updated sparkline in `TableView` row: `realHistRef?.current?.get(opp.id) ?? opp.history` — real data when ≥2 points, synthetic fallback otherwise
+- Updated `CardView` props: added `realHistRef`; same sparkline fallback pattern
+- Updated render calls at page bottom to pass `realHistRef` and `histVersion` to `TableView`; `realHistRef` to `CardView`
+
+### Tradeoffs / shortcuts
+- Real sparklines require ≥2 scans to show a trend (1 data point renders `null` from `Sparkline`); synthetic data shows as placeholder on the first scan — acceptable UX
+- `refreshRealHist` fetches ALL history entries (all pairs) in one call rather than per-pair — one round-trip per scan instead of N, but the full file can be large if history grows. Acceptable at ≤500 total entries (existing JSONL cap)
+- The `histVersion` state change triggers `ArbPage` re-render which cascades to `TableView`/`CardView` (neither is memoized), so they read updated `realHistRef.current` without needing the version passed explicitly — passing it to `TableView` only serves to drive the column header label change
+- Race condition: `refreshRealHist` fires inside `.then()` of the history POST, so it runs after the POST completes — current scan's data IS included in the sparkline on the same scan (unlike calling GET before POST)
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: ran scan → 2 results visible in table with "TREND ●" column header (dot confirms `histVersion > 0`, real history loaded from previous sessions)
+- `window.performance.getEntriesByType('resource').filter(e => e.name.includes('arb/history'))` confirmed 3 calls: mount + 2 scan cycles
+- No console errors
+
+### Follow-ups for future runs
+- Run multiple scans in sequence and verify sparklines show actual trend variation (widening/narrowing spread visible as slope in sparkline)
+- Kalshi position tracking still outstanding
+- Could add a "Δ edge" delta column showing spread change since previous scan (requires storing previous scan edge per pair in a ref)
+
+### Next milestone to pick up
+**A29** — to be defined. Candidates: Spread change delta column (show ↑/↓ vs previous scan in table edge column); Kalshi position tracking; pair score vs spread correlation scatter.
