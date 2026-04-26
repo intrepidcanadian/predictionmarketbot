@@ -629,4 +629,42 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - Could show a small notification count badge on the Bell icon after alerts fire
 
 ### Next milestone to pick up
-**A12** — to be defined. Candidates: URL-param shareable arb state; JSONL per-pair history cap; Kalshi position tracking.
+**A12** — Alert history log.
+
+---
+
+## 2026-04-26T10:30:00Z — milestone A12: Alert history log
+
+### What I did
+- Created `app/api/alert-log/route.ts`:
+  - `GET` — reads `frontend/alert-log.jsonl`, returns newest 50 entries reversed; returns `[]` if file absent
+  - `POST` — appends single `AlertLogEntry` JSON record; prunes to newest `MAX_ENTRIES = 100` entries on each write
+- Added `AlertLogEntry` interface to `app/arb/page.tsx`: `{ ts, pair_id, question, net_edge_pct, threshold, direction, poly_price, kalshi_price }`
+- Added 3 new state vars in `ArbPage`: `alertLog`, `newAlertCount`, `showAlertLog`
+- Mount `useEffect` fetches `/api/alert-log` on load and populates `alertLog`
+- Updated notification block in `runScan`: when a notification fires, also POSTs `AlertLogEntry` to `/api/alert-log`, prepends it to `alertLog` state, and increments `newAlertCount`
+- Added `History` icon import from lucide-react
+- Updated Bell button UI:
+  - Wrapped Bell button in `relative` div; shows a violet `newAlertCount` badge in top-right corner when `> 0`
+  - Added History icon button (appears only when `alertLog.length > 0`) that toggles `showAlertLog` and clears `newAlertCount`
+- Added "Recent Alerts" collapsible panel: appears between header and Kalshi filter pills when `showAlertLog && alertLog.length > 0`; shows last 10 entries (relative timestamp, net edge %, threshold crossed, question, P/K prices); close button inside panel header
+
+### Tradeoffs / shortcuts
+- `newAlertCount` is session-only (resets on page reload) — no localStorage; acceptable since the persistent count is visible via the panel's "N fired this session" badge
+- Panel does NOT auto-open on new alerts — only opens on explicit History button click; this avoids layout shifts during auto-scan
+- `innerText.includes('Recent Alerts')` check returns false in headless browser because Tailwind's `uppercase` CSS class transforms DOM text to uppercase — verified by inspecting `innerHTML` directly which confirmed "Recent Alerts" renders correctly
+
+### Verified by
+- `python -m pytest` — 35/35 pass
+- `bun run tsc --noEmit` — 0 errors
+- `bun run build` — exit code 0; `/api/alert-log` appears in build output as dynamic route
+- Browser: POST test entry to `/api/alert-log` via eval → reload `/arb` → History (clock) icon button appeared → clicked → "RECENT ALERTS · 1 fired this session" panel rendered with entry: "2m ago · +12.5% · thresh >10% · Will Bitcoin exceed $100k in 2026? · P47¢ K35¢"
+- No console errors
+
+### Follow-ups for future runs
+- Test unread count badge (visible only when browser has Notification permission, since `newAlertCount` only increments when real notifications fire)
+- Could add per-pair cap (e.g. max 10 entries per pair_id) to prevent one high-frequency pair from filling the log
+- `alert-log.jsonl` file path is relative to `process.cwd()` (frontend/) — consistent with `arb-history.jsonl` pattern
+
+### Next milestone to pick up
+**A13** — to be defined. Candidates: URL-param shareable arb pair state (deep-link to a specific pair); per-pair JSONL cap in history; Kalshi position tracking.

@@ -28,3 +28,4 @@ Milestones are picked up one at a time by the hourly builder. Check off each whe
 - [x] **A9** — Min-match filter + history pruning: "Match: All / Med+ / High" filter pills in the filter row to hide false positives; JSONL history capped at 500 entries (prune on each POST)
 - [x] **A10** — Persist filter preferences: view mode, sort column, minEdge, category pill, minMatch grade, Kalshi category selection, and auto-scan interval survive page reloads via localStorage
 - [x] **A11** — Browser notifications for spread alerts: Bell button with threshold presets (>5%/>10%/>20%); fires a native browser notification when auto-scan finds a new pair exceeding the threshold; de-duplicated per session to avoid spam
+- [x] **A12** — Alert history log: persist every fired notification to `frontend/alert-log.jsonl` via `/api/alert-log`; show a collapsible "Recent Alerts" panel (last 10 entries) next to the Bell button with an unread count badge; prune log to 100 entries

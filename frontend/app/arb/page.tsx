@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History } from "lucide-react";
 
 // ── localStorage preference hook ───────────────────────────────────────────
 
@@ -53,6 +53,17 @@ interface HistoryEntry {
   net_edge_pct: number;
   edge_cents: number;
   direction: string;
+}
+
+interface AlertLogEntry {
+  ts: string;
+  pair_id: string;
+  question: string;
+  net_edge_pct: number;
+  threshold: number;
+  direction: string;
+  poly_price: number;
+  kalshi_price: number;
 }
 
 interface PolyMarket {
@@ -1107,9 +1118,18 @@ export default function ArbPage() {
   // Ref so runScan can read latest notify prefs without re-creating its callback
   const notifyRef = useRef({ enabled: false, threshold: 5 });
 
-  // Init permission from browser on mount
+  // Alert history log
+  const [alertLog,      setAlertLog]      = useState<AlertLogEntry[]>([]);
+  const [newAlertCount, setNewAlertCount] = useState(0);
+  const [showAlertLog,  setShowAlertLog]  = useState(false);
+
+  // Init permission from browser on mount; fetch alert log
   useEffect(() => {
     if (typeof Notification !== "undefined") setNotifyPerm(Notification.permission);
+    fetch("/api/alert-log")
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setAlertLog(d as AlertLogEntry[]))
+      .catch(() => {});
   }, []);
 
   // Keep notifyRef in sync
@@ -1209,6 +1229,24 @@ export default function ArbPage() {
               tag: `arb-${opp.id}`,
             });
             n.onclick = () => window.focus();
+            // Persist to alert log
+            const entry: AlertLogEntry = {
+              ts: new Date().toISOString(),
+              pair_id: opp.id,
+              question: opp.question,
+              net_edge_pct: opp.netEdgePct,
+              threshold: notifyRef.current.threshold,
+              direction: opp.direction,
+              poly_price: opp.poly.price,
+              kalshi_price: opp.kalshi.price,
+            };
+            fetch("/api/alert-log", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(entry),
+            }).catch(() => {});
+            setAlertLog(prev => [entry, ...prev].slice(0, 50));
+            setNewAlertCount(c => c + 1);
           }
         }
       }
@@ -1311,19 +1349,34 @@ export default function ArbPage() {
                   ))}
                 </div>
               )}
-              <button
-                onClick={toggleNotify}
-                disabled={notifyPerm === "denied"}
-                title={notifyPerm === "denied" ? "Notifications blocked by browser — check browser site settings" : "Alert when a new arb pair exceeds the threshold"}
-                className={`h-8 px-2.5 rounded-md text-xs font-medium border transition-colors flex items-center gap-1.5
-                  ${notifyEnabled
-                    ? "bg-violet-500/15 text-violet-700 dark:text-violet-400 border-violet-500/30"
-                    : notifyPerm === "denied"
-                    ? "opacity-50 cursor-not-allowed bg-background border-border text-muted-foreground"
-                    : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
-                <Bell className={`size-3 ${notifyEnabled ? "text-violet-500" : ""}`}/>
-                {notifyPerm === "denied" ? "Blocked" : notifyEnabled ? `Alert >${notifyThreshold}%` : "Notify"}
-              </button>
+              <div className="relative">
+                <button
+                  onClick={toggleNotify}
+                  disabled={notifyPerm === "denied"}
+                  title={notifyPerm === "denied" ? "Notifications blocked by browser — check browser site settings" : "Alert when a new arb pair exceeds the threshold"}
+                  className={`h-8 px-2.5 rounded-md text-xs font-medium border transition-colors flex items-center gap-1.5
+                    ${notifyEnabled
+                      ? "bg-violet-500/15 text-violet-700 dark:text-violet-400 border-violet-500/30"
+                      : notifyPerm === "denied"
+                      ? "opacity-50 cursor-not-allowed bg-background border-border text-muted-foreground"
+                      : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
+                  <Bell className={`size-3 ${notifyEnabled ? "text-violet-500" : ""}`}/>
+                  {notifyPerm === "denied" ? "Blocked" : notifyEnabled ? `Alert >${notifyThreshold}%` : "Notify"}
+                </button>
+                {newAlertCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 size-4 rounded-full bg-violet-500 text-white text-[9px] font-bold flex items-center justify-center pointer-events-none">
+                    {newAlertCount > 9 ? "9+" : newAlertCount}
+                  </span>
+                )}
+              </div>
+              {alertLog.length > 0 && (
+                <button
+                  onClick={() => { setShowAlertLog(p => !p); setNewAlertCount(0); }}
+                  title="Recent alert history"
+                  className={`h-8 w-8 rounded-md border transition-colors flex items-center justify-center ${showAlertLog ? "bg-violet-500/15 text-violet-700 dark:text-violet-400 border-violet-500/30" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
+                  <History className="size-3.5"/>
+                </button>
+              )}
             </div>
             {/* Auto-scan controls */}
             <div className="flex items-center gap-1.5">
@@ -1350,6 +1403,42 @@ export default function ArbPage() {
             </Button>
           </div>
         </div>
+
+        {/* Alert history log panel */}
+        {showAlertLog && alertLog.length > 0 && (
+          <div className="mb-5 rounded-xl border border-violet-500/20 bg-violet-500/5 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-violet-500/15">
+              <History className="size-3.5 text-violet-500"/>
+              <span className="text-xs font-semibold text-violet-700 dark:text-violet-400 uppercase tracking-wider">Recent Alerts</span>
+              <span className="text-[10px] text-muted-foreground">{alertLog.length} fired this session</span>
+              <button onClick={() => setShowAlertLog(false)} className="ml-auto size-5 rounded hover:bg-muted/60 grid place-items-center text-muted-foreground">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3"><path d="M6 6l12 12M18 6 6 18"/></svg>
+              </button>
+            </div>
+            <div className="divide-y divide-violet-500/10 max-h-52 overflow-y-auto">
+              {alertLog.slice(0, 10).map((e, i) => {
+                const ago = (() => {
+                  const s = Math.floor((Date.now() - new Date(e.ts).getTime()) / 1000);
+                  if (s < 60) return `${s}s ago`;
+                  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+                  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+                  return `${Math.floor(s / 86400)}d ago`;
+                })();
+                return (
+                  <div key={i} className="flex items-center gap-3 px-4 py-2.5 text-[11px]">
+                    <span className="font-mono text-muted-foreground w-14 shrink-0">{ago}</span>
+                    <span className={`font-mono font-semibold shrink-0 ${e.net_edge_pct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600"}`}>
+                      +{e.net_edge_pct.toFixed(1)}%
+                    </span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">thresh &gt;{e.threshold}%</span>
+                    <span className="truncate text-foreground/80">{e.question}</span>
+                    <span className="font-mono text-muted-foreground shrink-0">P{Math.round(e.poly_price * 100)}¢ K{Math.round(e.kalshi_price * 100)}¢</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Kalshi category filter pills */}
         <div className="flex items-center gap-2 mb-5 flex-wrap">
