@@ -1323,4 +1323,45 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - Browser `kalshiCatsArr` filter preference is no longer sent to the server scan (server fetches all categories); the UI category pills still filter displayed results correctly
 
 ### Next milestone to pick up
-**A33** — Candidates: system cron setup + scan log viewer in UI; Kalshi position tracking; pair score vs spread correlation scatter.
+**A33** — Kalshi position tracking, scatter plot, and batch scoring UI improvements (all picked up together in the next run).
+
+---
+
+## 2026-04-27T06:00:00Z — milestones A33 + A34 + A35: Kalshi positions, scatter plot, batch scoring UI
+
+### What I did
+
+**A33 — Kalshi position tracking:**
+- Created `app/api/arb/kalshi-positions/route.ts`: `GET /api/arb/kalshi-positions` calls `trade-api/v2/portfolio/positions` with `Authorization: Token {KALSHI_API_KEY}`; returns `{ positions[] }` or `{ error }` with 503 when key is absent
+- Added `KalshiPosition` interface (ticker, market_title, position, market_exposure, realized_pnl, resting_order_count)
+- `ArbPage`: on mount, fetches kalshi-positions into `kalshiPosMap: Map<string, KalshiPosition> | null` (ticker → position); `kalshiPosError` holds any error string; both passed to `ArbDetail`
+- `ArbDetail`: new "Kalshi Position" panel shows contracts held, exposure ($), realized P&L (emerald/rose colored), resting order count; loading skeleton while `kalshiPosMap === null`; "Set KALSHI_API_KEY" message when error = "KALSHI_API_KEY not set"; panel hidden entirely when key is absent (clean UX)
+
+**A34 — AI score vs spread scatter plot:**
+- New `ScatterPlot` component: 540×240 SVG with X=AI similarity score (0–100), Y=net edge %; color-coded dots by grade (emerald H / amber M / slate L); transparent r=8 hit-target circle per point with r=4/5.5 visible dot (grows on hover); edge-aware tooltip (flips left/down near borders) showing truncated question, AI score, and edge %; dashed zero-line when spread crosses 0; legend row with grade colors
+- Added `"scatter"` to `ViewMode` union
+- Computed `hasAiScores = aiScoreVersion > 0` at `ArbPage` scope (was previously only inside `TableView`)
+- View toggle gains a "Scatter" button (scatter-dot SVG icon) that appears only when `hasAiScores` is true; click opens the scatter view
+- Clicking a scatter dot calls `onSelect(opp)` to open the detail drawer
+
+**A35 — Batch scoring UI improvements:**
+- Added `scoreSummary: { total: number; h: number; m: number; l: number } | null` state
+- `scoreAll` now tallies H/M/L counts during the loop; after the finally block, calls `setScoreSummary(tally)` when `tally.total > 0`
+- `useEffect` auto-dismisses summary after 6 seconds (clears on re-score)
+- Added full-width progress strip below the page header (visible only during active scoring): violet `Sparkles` icon, "Batch scoring X/N" label, ETA counter (~0.8s/pair), violet progress bar, Cancel button
+- Added green completion banner (visible after scoring, auto-dismissed after 6s): check icon, "Scored N pairs", H/M/L color-coded counts, ×-close button
+
+### Tradeoffs / shortcuts
+- Kalshi positions are fetched once on mount (not refreshed after scan) — position changes mid-session require a page reload; acceptable since positions rarely change mid-session
+- `realized_pnl` and `market_exposure` are divided by 100 (Kalshi returns cent-denominated values); if Kalshi API returns dollars instead, this would show 1/100th; gracefully wrong rather than crashing
+- Scatter plot is view-mode only (not shown alongside table) — avoids layout complexity; switching back to table retains filter state
+- `hasAiScores` is now computed at ArbPage scope and also inside TableView (slight duplication) — both derive from `aiScoreVersion`, so they always agree
+
+### Verified by
+- `npx tsc --noEmit --skipLibCheck` — exit 0
+- `node_modules/.bin/tsc --noEmit` — exit 0
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: page renders without new JS errors (pre-existing usePref hydration mismatch only); table, cards, live views all load correctly; Kalshi position panel renders with graceful "Set KALSHI_API_KEY" message (key not set in dev)
+
+### Next milestone to pick up
+**A36** — Candidates: system cron setup + scan log viewer; pair watchlist sync to server (persist across devices); improved false-positive triage (side-by-side resolution diff in table row).

@@ -66,6 +66,15 @@ interface AlertLogEntry {
   kalshi_price: number;
 }
 
+interface KalshiPosition {
+  ticker: string;
+  market_title: string;
+  position: number;
+  market_exposure: number;
+  realized_pnl: number;
+  resting_order_count: number;
+}
+
 interface PolyMarket {
   id: string; condition_id: string; question: string; slug: string; token_id: string;
   yes_price: number; no_price: number; volume: number; liquidity: number; active: boolean;
@@ -111,7 +120,7 @@ interface ScanOpp {
   history: number[];
 }
 
-type ViewMode = "table" | "cards" | "ticker";
+type ViewMode = "table" | "cards" | "ticker" | "scatter";
 type SortBy   = "edge" | "size" | "closes" | "match" | "ai";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -397,6 +406,136 @@ function SpreadChart({ entries }: { entries: HistoryEntry[] }) {
         );
       })()}
     </svg>
+  );
+}
+
+// ── Scatter plot: AI score vs net edge ─────────────────────────────────────
+
+function ScatterPlot({ opps, aiScoreCache, aiScoreVersion, onSelect }: {
+  opps: ScanOpp[];
+  aiScoreCache: React.MutableRefObject<Map<string, AiMatch>>;
+  aiScoreVersion: number;
+  onSelect: (o: ScanOpp) => void;
+}) {
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  const points = useMemo(
+    () => opps
+      .map(o => ({ opp: o, ai: aiScoreCache.current.get(o.id) }))
+      .filter((p): p is { opp: ScanOpp; ai: AiMatch } => p.ai != null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [opps, aiScoreVersion],
+  );
+
+  if (points.length < 2) {
+    return (
+      <div className="rounded-xl border bg-card flex items-center justify-center h-48 text-sm text-muted-foreground">
+        Score at least 2 pairs with AI to see the correlation scatter.
+      </div>
+    );
+  }
+
+  const W = 540, H = 240;
+  const PAD = { top: 16, right: 24, bottom: 32, left: 48 };
+  const cw = W - PAD.left - PAD.right, ch = H - PAD.top - PAD.bottom;
+
+  const minY = Math.min(...points.map(p => p.opp.netEdgePct));
+  const maxY = Math.max(...points.map(p => p.opp.netEdgePct));
+  const yRange = maxY - minY || 1;
+
+  const toX = (score: number) => PAD.left + (score / 100) * cw;
+  const toY = (edge: number) => PAD.top + (1 - (edge - minY) / yRange) * ch;
+
+  const gradeColor = (g: "H" | "M" | "L") =>
+    g === "H" ? "#10b981" : g === "M" ? "#f59e0b" : "#94a3b8";
+
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">AI Score vs Net Edge</h3>
+        <span className="text-[10px] text-muted-foreground">{points.length} scored pair{points.length !== 1 ? "s" : ""} · click a point to open</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}
+           onMouseLeave={() => setHovered(null)}>
+        {/* X grid */}
+        {[0, 25, 50, 75, 100].map(x => (
+          <line key={x} x1={toX(x)} y1={PAD.top} x2={toX(x)} y2={PAD.top + ch}
+            stroke="currentColor" strokeOpacity="0.07" strokeWidth="0.5"/>
+        ))}
+        {/* Y grid */}
+        {[minY, (minY + maxY) / 2, maxY].map((y, i) => (
+          <line key={i} x1={PAD.left} y1={toY(y)} x2={PAD.left + cw} y2={toY(y)}
+            stroke="currentColor" strokeOpacity="0.07" strokeWidth="0.5"/>
+        ))}
+        {/* X axis labels */}
+        {[0, 25, 50, 75, 100].map(x => (
+          <text key={x} x={toX(x)} y={PAD.top + ch + 14} textAnchor="middle"
+            fontSize="7" fill="currentColor" opacity="0.45">{x}</text>
+        ))}
+        {/* Y axis labels */}
+        {[minY, (minY + maxY) / 2, maxY].map((y, i) => (
+          <text key={i} x={PAD.left - 4} y={toY(y) + 3} textAnchor="end"
+            fontSize="7" fill="currentColor" opacity="0.45">
+            {y >= 0 ? "+" : ""}{y.toFixed(1)}%
+          </text>
+        ))}
+        <text x={PAD.left + cw / 2} y={H - 3} textAnchor="middle"
+          fontSize="7" fill="currentColor" opacity="0.45">AI Similarity Score →</text>
+        {/* Zero line when spread crosses zero */}
+        {minY < 0 && maxY > 0 && (
+          <line x1={PAD.left} y1={toY(0)} x2={PAD.left + cw} y2={toY(0)}
+            stroke="currentColor" strokeOpacity="0.2" strokeWidth="0.75" strokeDasharray="3,2"/>
+        )}
+        {/* Data points */}
+        {points.map(({ opp, ai }) => {
+          const cx = toX(ai.score), cy = toY(opp.netEdgePct);
+          const isH = hovered === opp.id;
+          return (
+            <g key={opp.id} style={{ cursor: "pointer" }}
+               onMouseEnter={() => setHovered(opp.id)}
+               onClick={() => onSelect(opp)}>
+              <circle cx={cx} cy={cy} r={8} fill="transparent"/>
+              <circle cx={cx} cy={cy} r={isH ? 5.5 : 4}
+                fill={gradeColor(ai.grade)} opacity={isH ? 1 : 0.65}
+                stroke={isH ? "currentColor" : "none"} strokeWidth="0.5" strokeOpacity="0.3"/>
+            </g>
+          );
+        })}
+        {/* Hover tooltip */}
+        {hovered !== null && (() => {
+          const p = points.find(pt => pt.opp.id === hovered);
+          if (!p) return null;
+          const cx = toX(p.ai.score), cy = toY(p.opp.netEdgePct);
+          const tw = 178, th = 42;
+          const tx = cx + tw + 10 > W - PAD.right ? cx - tw - 10 : cx + 10;
+          const ty = cy - th - 8 < PAD.top ? cy + 8 : cy - th - 8;
+          return (
+            <g style={{ pointerEvents: "none" }}>
+              <rect x={tx} y={ty} width={tw} height={th} rx="3"
+                style={{ fill: "hsl(var(--card))", stroke: "currentColor", strokeWidth: 0.5, strokeOpacity: 0.2 }}/>
+              <text x={tx + 6} y={ty + 13} fontSize="8" fill="currentColor" opacity="0.6">
+                {p.opp.question.length > 30 ? p.opp.question.slice(0, 30) + "…" : p.opp.question}
+              </text>
+              <text x={tx + 6} y={ty + 29} fontSize="9" fontWeight="600" fill={gradeColor(p.ai.grade)}>
+                AI {p.ai.score}%
+              </text>
+              <text x={tx + 64} y={ty + 29} fontSize="9" fontWeight="600"
+                fill={p.opp.netEdgePct >= 0 ? "#10b981" : "#f43f5e"}>
+                Edge {p.opp.netEdgePct >= 0 ? "+" : ""}{p.opp.netEdgePct.toFixed(1)}%
+              </text>
+            </g>
+          );
+        })()}
+      </svg>
+      <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground">
+        {(["H", "M", "L"] as const).map(g => (
+          <span key={g} className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full inline-block shrink-0" style={{ background: gradeColor(g) }}/>
+            {g === "H" ? "High match" : g === "M" ? "Med match" : "Low match"}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -735,12 +874,14 @@ interface AiMatch {
   usedResolution?: boolean;
 }
 
-function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreReady, pairThresholds, onSetPairThreshold }: {
+function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreReady, pairThresholds, onSetPairThreshold, kalshiPosMap, kalshiPosError }: {
   opp: ScanOpp; onClose: () => void; isWatched: boolean; onStar: () => void;
   aiScoreCache: React.MutableRefObject<Map<string, AiMatch>>;
   onAiScoreReady?: () => void;
   pairThresholds: Record<string, number>;
   onSetPairThreshold: (id: string, thresh: number | null) => void;
+  kalshiPosMap: Map<string, KalshiPosition> | null;
+  kalshiPosError: string | null;
 }) {
   const router = useRouter();
   const [capital,      setCapital]     = useState(1000);
@@ -1366,6 +1507,36 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
             })()}
           </div>
 
+          {/* Kalshi Position */}
+          {kalshiPosError !== "KALSHI_API_KEY not set" && (
+            <div className="rounded-xl border bg-card p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Kalshi Position</h3>
+              {kalshiPosError ? (
+                <p className="text-[11px] text-muted-foreground">Set KALSHI_API_KEY in frontend/.env.local to track open positions.</p>
+              ) : kalshiPosMap === null ? (
+                <div className="h-6 w-40 rounded bg-muted animate-pulse"/>
+              ) : (() => {
+                const pos = kalshiPosMap.get(opp.kalshi.ticker);
+                if (!pos) return <p className="text-[11px] text-muted-foreground">No open position on this market.</p>;
+                return (
+                  <div className="grid grid-cols-4 gap-3 text-xs">
+                    {[
+                      { label: "Contracts",  val: pos.position.toFixed(0),           cls: "" },
+                      { label: "Exposure",   val: fmtUsd(pos.market_exposure / 100), cls: "" },
+                      { label: "Realized P&L", val: fmtUsd(pos.realized_pnl / 100), cls: pos.realized_pnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400" },
+                      { label: "Resting",    val: pos.resting_order_count.toFixed(0) + " orders", cls: "text-muted-foreground" },
+                    ].map(({ label, val, cls }) => (
+                      <div key={label}>
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</div>
+                        <div className={`font-mono font-semibold mt-0.5 ${cls}`}>{val}</div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           {/* Create Rule from Arb */}
           {opp.netEdgePct > 0 && (
             <button
@@ -1585,6 +1756,7 @@ export default function ArbPage() {
 
   // Background AI score queue
   const [scoreProgress, setScoreProgress] = useState<{ current: number; total: number } | null>(null);
+  const [scoreSummary, setScoreSummary] = useState<{ total: number; h: number; m: number; l: number } | null>(null);
   const cancelScoringRef  = useRef(false);
   const scoringActiveRef  = useRef(false);
 
@@ -1605,6 +1777,10 @@ export default function ArbPage() {
       setHistVersion(v => v + 1);
     } catch {}
   }, []);
+
+  // Kalshi open positions — fetched once on mount
+  const [kalshiPosMap,   setKalshiPosMap]   = useState<Map<string, KalshiPosition> | null>(null);
+  const [kalshiPosError, setKalshiPosError] = useState<string | null>(null);
 
   // Per-pair alert thresholds (starred pairs can override global notify threshold)
   const [pairThresholds, setPairThresholds] = usePref<Record<string, number>>("arb:pair-thresholds", {});
@@ -1684,6 +1860,16 @@ export default function ArbPage() {
         }
       })
       .catch(() => {});
+    // Kalshi open positions (graceful: no-op when key absent)
+    fetch("/api/arb/kalshi-positions")
+      .then(r => r.json())
+      .then((d: { positions?: KalshiPosition[]; error?: string }) => {
+        if (d.error) { setKalshiPosError(d.error); return; }
+        const m = new Map<string, KalshiPosition>();
+        for (const p of (d.positions ?? [])) m.set(p.ticker, p);
+        setKalshiPosMap(m);
+      })
+      .catch(() => setKalshiPosError("Network error"));
     const sp = new URLSearchParams(window.location.search);
     const pairParam = sp.get("pair");
     if (pairParam) {
@@ -1834,6 +2020,13 @@ export default function ArbPage() {
     });
   }, [setKalshiCatsArr]);
 
+  // Auto-dismiss score completion summary after 6 seconds
+  useEffect(() => {
+    if (!scoreSummary) return;
+    const id = setTimeout(() => setScoreSummary(null), 6000);
+    return () => clearTimeout(id);
+  }, [scoreSummary]);
+
   // Keep autoRunRef current so the countdown interval never captures a stale runScan
   useEffect(() => { autoRunRef.current = () => runScan(false); }, [runScan]);
 
@@ -1869,6 +2062,8 @@ export default function ArbPage() {
   const avgEdge   = filtered.length ? filtered.reduce((s, o) => s + o.netEdgePct, 0) / filtered.length : 0;
   const totalCap  = filtered.reduce((s, o) => s + o.capitalCap, 0);
 
+  const hasAiScores = aiScoreVersion > 0;
+
   const scoreAll = useCallback(async () => {
     if (scoringActiveRef.current) return;
     const unscoredIds = filtered
@@ -1879,7 +2074,9 @@ export default function ArbPage() {
     scoringActiveRef.current = true;
     cancelScoringRef.current  = false;
     setScoreProgress({ current: 0, total: unscoredIds.length });
+    setScoreSummary(null);
 
+    let tally = { h: 0, m: 0, l: 0, total: 0 };
     try {
       for (let i = 0; i < unscoredIds.length; i++) {
         if (cancelScoringRef.current) break;
@@ -1917,6 +2114,10 @@ export default function ArbPage() {
           if (!d.error) {
             aiScoreCacheRef.current.set(id, d);
             onAiScoreReady();
+            tally.total++;
+            if (d.grade === "H") tally.h++;
+            else if (d.grade === "M") tally.m++;
+            else tally.l++;
             fetch("/api/arb/ai-cache", {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ id, match: d }),
@@ -1931,6 +2132,7 @@ export default function ArbPage() {
     } finally {
       scoringActiveRef.current = false;
       setScoreProgress(null);
+      if (tally.total > 0) setScoreSummary(tally);
     }
   }, [filtered, opps, onAiScoreReady]);
 
@@ -2054,6 +2256,43 @@ export default function ArbPage() {
           </div>
         </div>
 
+        {/* Batch scoring progress strip */}
+        {scoreProgress !== null && (
+          <div className="mb-4 rounded-xl border bg-card px-4 py-3 flex items-center gap-3">
+            <Sparkles className="size-3.5 text-violet-500 shrink-0 animate-pulse"/>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between text-[10px] mb-1.5">
+                <span className="font-medium text-foreground">Batch scoring {scoreProgress.current}/{scoreProgress.total}</span>
+                <span className="font-mono text-muted-foreground">
+                  ~{Math.ceil((scoreProgress.total - scoreProgress.current) * 0.8)}s left
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-border overflow-hidden">
+                <div className="h-full rounded-full bg-violet-500 transition-all"
+                  style={{ width: `${Math.round((scoreProgress.current / scoreProgress.total) * 100)}%` }}/>
+              </div>
+            </div>
+            <button onClick={stopScoring}
+              className="shrink-0 h-7 px-2.5 rounded-md text-[10px] font-medium border border-border bg-background text-muted-foreground hover:text-foreground transition-colors">
+              Cancel
+            </button>
+          </div>
+        )}
+        {/* Score completion summary (auto-dismisses after 6s) */}
+        {scoreSummary !== null && scoreProgress === null && (
+          <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-2.5 flex items-center gap-3 text-xs">
+            <Check className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0"/>
+            <span className="font-medium">Scored {scoreSummary.total} pairs</span>
+            <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">H:{scoreSummary.h}</span>
+            <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">M:{scoreSummary.m}</span>
+            <span className="font-mono font-semibold text-muted-foreground">L:{scoreSummary.l}</span>
+            <button onClick={() => setScoreSummary(null)}
+              className="ml-auto size-5 rounded hover:bg-muted/60 grid place-items-center text-muted-foreground shrink-0">
+              <X className="size-3"/>
+            </button>
+          </div>
+        )}
+
         {/* Alert history log panel */}
         {showAlertLog && alertLog.length > 0 && (
           <div className="mb-5 rounded-xl border border-violet-500/20 bg-violet-500/5 overflow-hidden">
@@ -2162,6 +2401,14 @@ export default function ArbPage() {
                   {label}
                 </button>
               ))}
+              {hasAiScores && (
+                <button onClick={() => setView("scatter")}
+                        title="AI score vs spread scatter plot"
+                        className={`flex items-center gap-1.5 h-7 px-2.5 rounded text-xs font-medium transition-colors ${view === "scatter" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3.5"><circle cx="5" cy="19" r="1.5"/><circle cx="12" cy="10" r="1.5"/><circle cx="9" cy="15" r="1.5"/><circle cx="17" cy="6" r="1.5"/><circle cx="19" cy="13" r="1.5"/></svg>
+                  Scatter
+                </button>
+              )}
             </div>
             <div className="flex items-center gap-1 flex-wrap">
               {categories.map(c => (
@@ -2203,9 +2450,10 @@ export default function ArbPage() {
         )}
         {!scanning && filtered.length > 0 && (
           <>
-            {view === "table"  && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion} realHistRef={realHistRef} histVersion={histVersion} prevEdgeRef={prevEdgeRef}/>}
-            {view === "cards"  && <CardView  opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist} realHistRef={realHistRef}/>}
-            {view === "ticker" && <TickerView opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
+            {view === "table"   && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion} realHistRef={realHistRef} histVersion={histVersion} prevEdgeRef={prevEdgeRef}/>}
+            {view === "cards"   && <CardView  opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist} realHistRef={realHistRef}/>}
+            {view === "ticker"  && <TickerView opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
+            {view === "scatter" && <ScatterPlot opps={filtered} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion} onSelect={selectOpp}/>}
             <p className="text-[10px] text-muted-foreground text-center mt-6 font-mono">
               {opps.length} pairs scanned · keyword-matched · net of Poly 2% + Kalshi 7% fees
             </p>
@@ -2213,7 +2461,7 @@ export default function ArbPage() {
         )}
       </div>
 
-      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)} aiScoreCache={aiScoreCacheRef} onAiScoreReady={onAiScoreReady} pairThresholds={pairThresholds} onSetPairThreshold={setPairThreshold}/>}
+      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)} aiScoreCache={aiScoreCacheRef} onAiScoreReady={onAiScoreReady} pairThresholds={pairThresholds} onSetPairThreshold={setPairThreshold} kalshiPosMap={kalshiPosMap} kalshiPosError={kalshiPosError}/>}
     </div>
   );
 }
