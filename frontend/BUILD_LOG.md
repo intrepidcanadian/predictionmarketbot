@@ -915,3 +915,34 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A20** — to be defined. Candidates: fix CardView SSR `button > button` warning (change card outer `<button>` to `<div role="button">`); Kalshi position tracking; per-pair resolution diff highlighter (show which sentences differ between Poly and Kalshi rules).
+
+---
+
+## 2026-04-26T18:30:00Z — milestone A20: CardView hydration fix + resolution keyword diff
+
+### What I did
+- Added `computeResDiff(polyText, kalshiText)` helper: extracts significant words (>3 chars, filtered by a 40-word stop list) from each resolution text, returns `{ polyOnly, kalshiOnly }` using Set difference, capped at 14 tokens per side
+- Changed CardView outer element from `<button>` to `<div role="button" tabIndex={0}>` with an `onKeyDown` handler — eliminates the pre-existing SSR hydration warning ("button cannot be a descendant of button") that appeared on every CardView render
+- Added "KEY TERM DIFF" panel in ArbDetail resolution section: rendered only when `!resLoading` and both `poly.description` and `kalshi.rules_primary` are present; shows Poly-only tokens (blue chips) vs Kalshi-only tokens (emerald chips) in a 2-col grid inside a muted rounded panel below the amber warning banner
+- Cleared stale Turbopack build cache (`.next/`) + restarted dev server to flush an intermediate compile failure caused by the button→div tag mismatch during editing
+
+### Tradeoffs / shortcuts
+- `computeResDiff` does simple Set difference on word tokens — no TF-IDF or stemming; common words that leak through the stop list may appear (e.g. "2029" appears as a Kalshi-only token for the Fed Reserve market, which is correct signal)
+- Panel uses an IIFE in JSX (`(() => { ... })()`) to keep the diff computation co-located with the render without adding a new sub-component; acceptable for this volume of logic
+- Stop list (40 words) was tuned empirically to remove noise while keeping meaningful terms; edge cases exist (e.g. "then", "resolves" still visible in some markets)
+- Turbopack does not recover automatically from a JSX tag-mismatch compile error when edits are applied in two separate steps; always apply opening+closing tag changes atomically or restart the server
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: CardView rendered with 7 cards, 0 nested `button button` elements, 6 `[role="button"]` star icons
+- Clicked first card ("Trump out as President before GTA VI?") → scrolled to bottom of drawer → "KEY TERM DIFF" panel visible with Poly-only tokens: `donald, trump, ceases, president, period, time, grand, theft, auto, officially, released, otherwise, neither, occurs` and Kalshi-only tokens: `federal, reserve, system, ended, january, 2029, then, resolves` — immediately reveals the false positive
+- No console errors after fresh server restart
+
+### Follow-ups for future runs
+- Stem words (e.g. "resolves" → "resolve") to improve token matching accuracy
+- Add a "Shared key terms" section showing terms that appear in both sides (positive signal for true matches)
+- Kalshi position tracking still outstanding as a higher-effort follow-up
+
+### Next milestone to pick up
+**A21** — to be defined. Candidates: shared-terms section in resolution diff (positive signal); Kalshi position tracking; per-pair alert threshold (notify only when specific pair crosses its own threshold, not a global threshold).

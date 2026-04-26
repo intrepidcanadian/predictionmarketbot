@@ -142,6 +142,23 @@ function keywordScore(a: string, b: string): number {
   return hits / Math.max(wa.size, wb.size, 1);
 }
 
+function computeResDiff(polyText: string, kalshiText: string): { polyOnly: string[]; kalshiOnly: string[] } {
+  const STOP = new Set([
+    "will","the","a","an","in","on","by","of","to","for","at","be","is","or","and",
+    "if","this","that","market","resolve","resolved","yes","no","contract","event",
+    "based","other","any","all","not","with","from","its","has","have","been","are",
+    "which","when","where","under","after","before","than","more","most","such","each",
+  ]);
+  const words = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(w => w.length > 3 && !STOP.has(w));
+  const wa = new Set(words(polyText));
+  const wb = new Set(words(kalshiText));
+  return {
+    polyOnly:   [...wa].filter(w => !wb.has(w)).slice(0, 14),
+    kalshiOnly: [...wb].filter(w => !wa.has(w)).slice(0, 14),
+  };
+}
+
 function dateProxScore(a?: string, b?: string): number {
   if (!a || !b) return 0;
   const da = new Date(a).getTime(), db = new Date(b).getTime();
@@ -404,8 +421,10 @@ function CardView({ opps, onSelect, watchlistIds, onStar }: {
               const buyPoly = opp.direction === "buy_poly_sell_kalshi";
               const watched = watchlistIds.includes(opp.id);
               return (
-                <button key={opp.id} onClick={() => onSelect(opp)}
-                  className="text-left rounded-xl border bg-card p-4 hover:border-foreground/30 hover:shadow-sm transition-all">
+                <div key={opp.id} role="button" tabIndex={0}
+                  onClick={() => onSelect(opp)}
+                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") onSelect(opp); }}
+                  className="text-left rounded-xl border bg-card p-4 hover:border-foreground/30 hover:shadow-sm transition-all cursor-pointer">
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <p className="text-[13px] font-medium leading-snug line-clamp-2 flex-1">{opp.question}</p>
                     <div className="flex items-center gap-1 shrink-0">
@@ -441,7 +460,7 @@ function CardView({ opps, onSelect, watchlistIds, onStar }: {
                     <span>Closes: <span className="font-mono text-foreground">{timeUntil(opp.closes)}</span></span>
                     <Sparkline data={opp.history} className="w-12 h-3 text-emerald-600 dark:text-emerald-400"/>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -1120,6 +1139,38 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
             <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400">
               <AlertTriangle className="size-3 shrink-0"/> Verify both sides resolve identically before trading.
             </div>
+            {!resLoading && resolution?.poly?.description && resolution?.kalshi?.rules_primary && (() => {
+              const { polyOnly, kalshiOnly } = computeResDiff(
+                resolution.poly.description,
+                [resolution.kalshi.rules_primary, resolution.kalshi.rules_secondary].filter(Boolean).join(" "),
+              );
+              if (polyOnly.length === 0 && kalshiOnly.length === 0) return null;
+              return (
+                <div className="mt-3 rounded-lg border border-border/50 bg-muted/30 p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Key term diff</p>
+                  <div className="grid grid-cols-2 gap-2 text-[10px]">
+                    <div>
+                      <p className="text-blue-500 dark:text-blue-400 font-medium mb-1">Poly-only terms</p>
+                      {polyOnly.length > 0
+                        ? <div className="flex flex-wrap gap-1">{polyOnly.map(w => (
+                            <span key={w} className="rounded px-1.5 py-0.5 bg-blue-500/10 text-blue-700 dark:text-blue-300 font-mono">{w}</span>
+                          ))}</div>
+                        : <span className="text-muted-foreground italic">none</span>
+                      }
+                    </div>
+                    <div>
+                      <p className="text-emerald-600 dark:text-emerald-400 font-medium mb-1">Kalshi-only terms</p>
+                      {kalshiOnly.length > 0
+                        ? <div className="flex flex-wrap gap-1">{kalshiOnly.map(w => (
+                            <span key={w} className="rounded px-1.5 py-0.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-mono">{w}</span>
+                          ))}</div>
+                        : <span className="text-muted-foreground italic">none</span>
+                      }
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Create Rule from Arb */}
