@@ -726,6 +726,12 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
             setAiMatch(d as AiMatch);
             aiScoreCache.current.set(opp.id, d as AiMatch);
             onAiScoreReady?.();
+            // Persist to server-side cache (fire-and-forget)
+            fetch("/api/arb/ai-cache", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: opp.id, match: d }),
+            }).catch(() => {});
           }
         } catch {
           if (!cancelled) setAiMatchError("Network error");
@@ -1488,12 +1494,22 @@ export default function ArbPage() {
   const [newAlertCount, setNewAlertCount] = useState(0);
   const [showAlertLog,  setShowAlertLog]  = useState(false);
 
-  // Init permission from browser on mount; fetch alert log; capture ?pair= + filter deep-link
+  // Init permission from browser on mount; fetch alert log + AI score cache; capture ?pair= + filter deep-link
   useEffect(() => {
     if (typeof Notification !== "undefined") setNotifyPerm(Notification.permission);
     fetch("/api/alert-log")
       .then(r => r.ok ? r.json() : [])
       .then(d => setAlertLog(d as AlertLogEntry[]))
+      .catch(() => {});
+    fetch("/api/arb/ai-cache")
+      .then(r => r.ok ? r.json() : {})
+      .then((cache: Record<string, AiMatch>) => {
+        const entries = Object.entries(cache);
+        if (entries.length > 0) {
+          entries.forEach(([id, match]) => aiScoreCacheRef.current.set(id, match));
+          setAiScoreVersion(entries.length);
+        }
+      })
       .catch(() => {});
     const sp = new URLSearchParams(window.location.search);
     const pairParam = sp.get("pair");
