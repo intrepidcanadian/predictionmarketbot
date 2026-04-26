@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History, Link2, Check, Star, X, ExternalLink, Download } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History, Link2, Check, Star, X, ExternalLink, Download, Loader2, Sparkles } from "lucide-react";
 
 // ── localStorage preference hook ───────────────────────────────────────────
 
@@ -1462,6 +1462,11 @@ export default function ArbPage() {
   const [aiScoreVersion, setAiScoreVersion] = useState(0);
   const onAiScoreReady = useCallback(() => setAiScoreVersion(v => v + 1), []);
 
+  // Background AI score queue
+  const [scoreProgress, setScoreProgress] = useState<{ current: number; total: number } | null>(null);
+  const cancelScoringRef  = useRef(false);
+  const scoringActiveRef  = useRef(false);
+
   // Per-pair alert thresholds (starred pairs can override global notify threshold)
   const [pairThresholds, setPairThresholds] = usePref<Record<string, number>>("arb:pair-thresholds", {});
   const setPairThreshold = useCallback((id: string, thresh: number | null) => {
@@ -1746,6 +1751,73 @@ export default function ArbPage() {
   const avgEdge   = filtered.length ? filtered.reduce((s, o) => s + o.netEdgePct, 0) / filtered.length : 0;
   const totalCap  = filtered.reduce((s, o) => s + o.capitalCap, 0);
 
+  const scoreAll = useCallback(async () => {
+    if (scoringActiveRef.current) return;
+    const unscoredIds = filtered
+      .filter(o => !aiScoreCacheRef.current.has(o.id))
+      .map(o => o.id);
+    if (unscoredIds.length === 0) return;
+
+    scoringActiveRef.current = true;
+    cancelScoringRef.current  = false;
+    setScoreProgress({ current: 0, total: unscoredIds.length });
+
+    try {
+      for (let i = 0; i < unscoredIds.length; i++) {
+        if (cancelScoringRef.current) break;
+        const id  = unscoredIds[i];
+        if (aiScoreCacheRef.current.has(id)) {
+          setScoreProgress({ current: i + 1, total: unscoredIds.length });
+          continue;
+        }
+        const opp = opps.find(o => o.id === id);
+        if (!opp) continue;
+        setScoreProgress({ current: i + 1, total: unscoredIds.length });
+
+        const resParams = new URLSearchParams();
+        if (opp.slug)          resParams.set("poly_slug",     opp.slug);
+        if (opp.kalshi.ticker) resParams.set("kalshi_ticker", opp.kalshi.ticker);
+        let polyRes = "", kalshiRes = "";
+        try {
+          const rd = await fetch(`/api/arb/resolution?${resParams}`)
+            .then(r => r.ok ? r.json() : null) as ResolutionData | null;
+          polyRes   = rd?.poly?.description?.slice(0, 400)?.trim() ?? "";
+          kalshiRes = ([rd?.kalshi?.rules_primary, rd?.kalshi?.rules_secondary] as (string | undefined)[])
+            .filter(Boolean).join("\n").slice(0, 400).trim();
+        } catch {}
+
+        const body: Record<string, string> = { poly_question: opp.question, kalshi_title: opp.kalshi.title };
+        if (polyRes)   body.poly_resolution   = polyRes;
+        if (kalshiRes) body.kalshi_resolution = kalshiRes;
+
+        try {
+          const r = await fetch("/api/arb/match-score", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+          });
+          if (r.status === 503) break; // No API key — abort remaining
+          const d = await r.json() as AiMatch & { error?: string };
+          if (!d.error) {
+            aiScoreCacheRef.current.set(id, d);
+            onAiScoreReady();
+            fetch("/api/arb/ai-cache", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id, match: d }),
+            }).catch(() => {});
+          }
+        } catch {}
+
+        if (i < unscoredIds.length - 1 && !cancelScoringRef.current) {
+          await new Promise<void>(resolve => setTimeout(resolve, 250));
+        }
+      }
+    } finally {
+      scoringActiveRef.current = false;
+      setScoreProgress(null);
+    }
+  }, [filtered, opps, onAiScoreReady]);
+
+  const stopScoring = useCallback(() => { cancelScoringRef.current = true; }, []);
+
   return (
     <div className="flex-1 overflow-auto">
       <div className="p-6 max-w-[1400px] mx-auto">
@@ -1833,6 +1905,25 @@ export default function ArbPage() {
               <Download className="size-3.5"/>
               Export
             </Button>
+            {opps.length > 0 && (() => {
+              const isActive     = scoreProgress !== null;
+              const unscoredCount = filtered.filter(o => !aiScoreCacheRef.current.has(o.id)).length;
+              return (
+                <Button
+                  onClick={isActive ? stopScoring : scoreAll}
+                  disabled={!isActive && unscoredCount === 0}
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  title={isActive ? "Cancel batch scoring" : unscoredCount === 0 ? "All visible pairs already scored" : `Score ${unscoredCount} unscored pair${unscoredCount === 1 ? "" : "s"} with Haiku`}
+                >
+                  {isActive
+                    ? <><Loader2 className="size-3.5 animate-spin"/>Stop {scoreProgress.current}/{scoreProgress.total}</>
+                    : <><Sparkles className="size-3.5"/>{unscoredCount > 0 ? `Score All (${unscoredCount})` : "All Scored"}</>
+                  }
+                </Button>
+              );
+            })()}
             <Button onClick={runScan} disabled={scanning} size="sm" className="gap-1.5">
               <Zap className="size-3.5"/>
               {scanning ? "Scanning…" : "Run Scan"}

@@ -1132,7 +1132,35 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - Test round-trip: set `ANTHROPIC_API_KEY`, open a pair, reload page → AI column should reappear without re-fetching Haiku
 
 ### Next milestone to pick up
-**A27** — to be defined. Candidates: Kalshi position tracking; JSONL history chart improvements; "shared terms" in the AI scoring prompt to improve accuracy.
+**A27** — Background AI score queue.
+
+---
+
+## 2026-04-27T01:00:00Z — milestone A27: Background AI score queue
+
+### What I did
+- Added `Loader2` and `Sparkles` to lucide-react imports in `app/arb/page.tsx`
+- Added 3 new variables in `ArbPage`: `scoreProgress` state (`null | { current, total }`), `cancelScoringRef`, `scoringActiveRef`
+- Added `scoreAll` useCallback (defined after `filtered` useMemo so it can close over it): captures unscored pair IDs from `filtered` at call time, then iterates sequentially — for each pair: fetch resolution (same 5-min ISR cache as drawer), then POST to `/api/arb/match-score` with resolution text; stores result in `aiScoreCacheRef` + calls `onAiScoreReady()` + fire-and-forgets to `/api/arb/ai-cache`; 250ms delay between calls; aborts on 503 (no API key)
+- Added `stopScoring` useCallback: sets `cancelScoringRef.current = true` which breaks the loop at the next iteration
+- Added "Score All (N)" / "Stop X/N" / "All Scored" button in page header between Export and Run Scan: hidden when no scan results (`opps.length === 0`), shows unscored count from current `filtered` view (re-derives on each `aiScoreVersion` bump), spinner + "Stop X/N" while active, disabled when all already scored
+
+### Tradeoffs / shortcuts
+- `scoreAll` captures `filtered` (and hence `opps`) at call time — if a rescan happens mid-scoring, the loop continues on the original snapshot; pairs not found in `opps` are silently skipped
+- 503 aborts the whole queue (no API key) — the button returns to idle immediately; user sees "Score All (N)" again, indicating the batch didn't complete
+- `unscoredCount` in the button label uses `aiScoreCacheRef.current` during render, updated via `aiScoreVersion` state bump — no stale display
+- No toast on completion — the button label changes from "Stop X/N" back to "Score All (0)" or "All Scored" which is self-evident
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: ran scan → "Score All (3)" button appeared in header between Export and Run Scan (Sparkles icon, correct count matching `filtered` unscored pairs given active Med+ filter); screenshot confirms layout
+- No console errors
+
+### Follow-ups for future runs
+- Test with `ANTHROPIC_API_KEY` set: click "Score All" → watch AI column populate row by row; click Stop mid-way
+- Kalshi position tracking still outstanding
+- Per-pair JSONL history visualization improvements outstanding
 
 ### Next milestone to pick up
-**A26** — to be defined. Candidates: Kalshi position tracking; persist AI scores across sessions; JSONL history visualization improvements.
+**A28** — to be defined. Candidates: Kalshi position tracking; JSONL history chart improvements (per-pair mini-chart in table); pair score vs spread correlation view.
