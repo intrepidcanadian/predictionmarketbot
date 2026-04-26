@@ -1045,3 +1045,34 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A24** — to be defined. Candidates: per-pair alert threshold for starred pairs; Kalshi position tracking; match-score sort column ("Sort by AI").
+
+---
+
+## 2026-04-26T21:30:00Z — milestone A24: Per-pair alert threshold
+
+### What I did
+- Added `[pairThresholds, setPairThresholds] = usePref<Record<string,number>>("arb:pair-thresholds", {})` to `ArbPage`
+- Added `setPairThreshold(id, thresh | null)` callback: functional update that adds/removes from the map; `null` removes the key (falls back to global)
+- Added `pairAlertRef` (mirrors `watchlistIds` + `pairThresholds`); kept in sync via `useEffect` — same ref pattern as `notifyRef`/`autoRunRef`
+- Updated `runScan` notification block: computes `effectiveThresh` per opp — uses `pairThresholds[id]` if the pair is starred and has a per-pair threshold, else falls back to global `notifyRef.current.threshold`
+- Added `pairThresholds` + `onSetPairThreshold` props to `ArbDetail`
+- Added threshold pill row in `ArbDetail` sticky header (below the question title, visible only when `isWatched`): pills for >5%/>10%/>20%/>30%; active pill highlighted violet; clicking active pill clears it (toggle-off); "overrides global" label appears when a per-pair threshold is set
+
+### Tradeoffs / shortcuts
+- Threshold only applies during `runScan` (auto-scan or manual scan); it does not retroactively re-alert for already-notified pair IDs in `notifiedIdsRef` — clearing a threshold won't re-trigger
+- Pills are only visible when `isWatched` — no point setting a threshold for an unwatched pair (it would never be checked against a special threshold anyway, since `pairAlertRef.current.watchlistIds.includes(opp.id)` gates the per-pair logic)
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` — 35/35 pass
+- Browser: pre-starred pair `540820-KXFEDEND-29-JAN20` via localStorage; ran scan; opened drawer → "Alert at: >5% >10% >20% >30%" row visible below question title
+- Clicked `>20%` → pill turned violet, `arb:pair-thresholds` localStorage = `{"540820-KXFEDEND-29-JAN20":20}`, "overrides global" label appeared
+- Screenshot confirms: violet `>20%` pill, "overrides global" label, no console errors
+
+### Follow-ups for future runs
+- Could show the effective threshold in the notification itself ("alert at >20% · pair threshold")
+- Sort by AI score (add `"ai"` to SortBy, sort by `aiScoreCache.current.get(opp.id)?.score ?? -1`)
+- Kalshi position tracking still outstanding
+
+### Next milestone to pick up
+**A25** — to be defined. Candidates: sort by AI score; Kalshi position tracking; JSONL history pruning per-pair visualization.

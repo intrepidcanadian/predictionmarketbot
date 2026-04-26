@@ -633,10 +633,12 @@ interface AiMatch {
   usedResolution?: boolean;
 }
 
-function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreReady }: {
+function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreReady, pairThresholds, onSetPairThreshold }: {
   opp: ScanOpp; onClose: () => void; isWatched: boolean; onStar: () => void;
   aiScoreCache: React.MutableRefObject<Map<string, AiMatch>>;
   onAiScoreReady?: () => void;
+  pairThresholds: Record<string, number>;
+  onSetPairThreshold: (id: string, thresh: number | null) => void;
 }) {
   const router = useRouter();
   const [capital,      setCapital]     = useState(1000);
@@ -816,6 +818,28 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
               </a>
             </div>
             <h2 className="text-base font-semibold leading-snug pr-2">{opp.question}</h2>
+            {isWatched && (
+              <div className="flex items-center gap-1 mt-2">
+                <span className="text-[10px] text-muted-foreground font-medium">Alert at:</span>
+                {([5, 10, 20, 30] as const).map(t => {
+                  const active = pairThresholds[opp.id] === t;
+                  return (
+                    <button key={t}
+                      onClick={() => onSetPairThreshold(opp.id, active ? null : t)}
+                      className={`h-5 px-1.5 rounded text-[10px] font-mono font-medium transition-colors border ${
+                        active
+                          ? "bg-violet-500 text-white border-violet-500"
+                          : "bg-background border-border text-muted-foreground hover:text-foreground"
+                      }`}>
+                      &gt;{t}%
+                    </button>
+                  );
+                })}
+                {pairThresholds[opp.id] != null && (
+                  <span className="text-[10px] text-muted-foreground ml-1">overrides global</span>
+                )}
+              </div>
+            )}
           </div>
           <button
             onClick={onStar}
@@ -1431,6 +1455,18 @@ export default function ArbPage() {
   const [aiScoreVersion, setAiScoreVersion] = useState(0);
   const onAiScoreReady = useCallback(() => setAiScoreVersion(v => v + 1), []);
 
+  // Per-pair alert thresholds (starred pairs can override global notify threshold)
+  const [pairThresholds, setPairThresholds] = usePref<Record<string, number>>("arb:pair-thresholds", {});
+  const setPairThreshold = useCallback((id: string, thresh: number | null) => {
+    setPairThresholds(prev => {
+      const next = { ...prev };
+      if (thresh === null) delete next[id]; else next[id] = thresh;
+      return next;
+    });
+  }, [setPairThresholds]);
+  // Ref so runScan can read latest watchlist + per-pair thresholds without stale closure
+  const pairAlertRef = useRef<{ watchlistIds: string[]; thresholds: Record<string, number> }>({ watchlistIds: [], thresholds: {} });
+
   // Watchlist
   const [watchlistIds,  setWatchlistIds]  = usePref<string[]>("arb:watchlist", []);
   const [showWatchlist, setShowWatchlist] = usePref<boolean>("arb:show-watchlist", false);
@@ -1505,6 +1541,11 @@ export default function ArbPage() {
   useEffect(() => {
     notifyRef.current = { enabled: notifyEnabled, threshold: notifyThreshold };
   }, [notifyEnabled, notifyThreshold]);
+
+  // Keep pairAlertRef in sync
+  useEffect(() => {
+    pairAlertRef.current = { watchlistIds, thresholds: pairThresholds };
+  }, [watchlistIds, pairThresholds]);
 
   const toggleNotify = useCallback(async () => {
     if (notifyEnabled) { setNotifyEnabled(false); return; }
@@ -1588,8 +1629,12 @@ export default function ArbPage() {
         Notification.permission === "granted"
       ) {
         for (const opp of top) {
+          const { watchlistIds: wl, thresholds: pt } = pairAlertRef.current;
+          const effectiveThresh = wl.includes(opp.id) && pt[opp.id] != null
+            ? pt[opp.id]
+            : notifyRef.current.threshold;
           if (
-            opp.netEdgePct >= notifyRef.current.threshold &&
+            opp.netEdgePct >= effectiveThresh &&
             !notifiedIdsRef.current.has(opp.id)
           ) {
             notifiedIdsRef.current.add(opp.id);
@@ -1937,7 +1982,7 @@ export default function ArbPage() {
         )}
       </div>
 
-      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)} aiScoreCache={aiScoreCacheRef} onAiScoreReady={onAiScoreReady}/>}
+      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)} aiScoreCache={aiScoreCacheRef} onAiScoreReady={onAiScoreReady} pairThresholds={pairThresholds} onSetPairThreshold={setPairThreshold}/>}
     </div>
   );
 }
