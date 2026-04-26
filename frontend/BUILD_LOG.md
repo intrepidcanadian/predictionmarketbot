@@ -1102,5 +1102,37 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - Could persist AI scores to `arb-history.jsonl` or a dedicated cache file so sort survives page reload
 - Per-pair JSONL history visualization improvements outstanding
 
+---
+
+## 2026-04-27T00:30:00Z — milestone A26: Persist AI scores across sessions
+
+### What I did
+- Created `app/api/arb/ai-cache/route.ts`:
+  - `GET` — reads `frontend/arb-ai-cache.json`, returns the full map (`Record<string, AiMatchEntry>`); `Cache-Control: no-store` so the client always gets fresh data
+  - `POST` — merges a single `{ id, match }` entry (stamps `ts`) into the file; prunes to newest 200 entries sorted by `ts` desc before writing
+- Updated `app/arb/page.tsx`:
+  - Mount `useEffect`: added `GET /api/arb/ai-cache` fetch that populates `aiScoreCacheRef.current` from file on load; calls `setAiScoreVersion(entries.length)` so the AI column appears immediately if scores exist
+  - `ArbDetail` AI fetch: after `aiScoreCache.current.set(opp.id, d)`, fires a background `POST /api/arb/ai-cache` (fire-and-forget, errors swallowed)
+
+### Tradeoffs / shortcuts
+- `arb-ai-cache.json` uses `ts` field added at write time (not from the Haiku response itself) for pruning — the `AiMatch` interface is unchanged on the client side
+- File rewrite on every POST: acceptable at ≤200 entries for a localhost tool
+- Cache is pair_id-keyed; if the same pair surfaces with a different question (very unlikely for stable Kalshi tickers), the old score is overwritten — correct behavior
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: fresh page load → `GET /api/arb/ai-cache → 200 OK` visible in network log (confirmed via preview_network)
+- No console errors
+- `arb-ai-cache.json` does not exist yet (file created on first Haiku score write; requires `ANTHROPIC_API_KEY` to be set to trigger a write)
+
+### Follow-ups for future runs
+- Kalshi position tracking still outstanding
+- Per-pair JSONL history visualization improvements outstanding
+- Test round-trip: set `ANTHROPIC_API_KEY`, open a pair, reload page → AI column should reappear without re-fetching Haiku
+
+### Next milestone to pick up
+**A27** — to be defined. Candidates: Kalshi position tracking; JSONL history chart improvements; "shared terms" in the AI scoring prompt to improve accuracy.
+
 ### Next milestone to pick up
 **A26** — to be defined. Candidates: Kalshi position tracking; persist AI scores across sessions; JSONL history visualization improvements.
