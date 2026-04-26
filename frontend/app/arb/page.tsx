@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History, Link2, Check, Star, X } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, Bell, History, Link2, Check, Star, X, ExternalLink, Download } from "lucide-react";
 
 // ── localStorage preference hook ───────────────────────────────────────────
 
@@ -373,10 +373,11 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
                   <td className="px-3 py-2.5"><EdgePill pct={opp.netEdgePct}/></td>
                   <td className="px-3 py-2.5"><MatchBadge grade={opp.matchQuality.grade}/></td>
                   <td className="px-3 py-2.5 max-w-xs">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 mb-0.5">
                       <CategoryBadge cat={opp.category}/>
                       <span className="font-medium truncate">{opp.question}</span>
                     </div>
+                    <div className="text-[10px] text-muted-foreground truncate pl-px">{opp.kalshi.title}</div>
                   </td>
                   <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${buyPoly ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-rose-600 dark:text-rose-400"}`}>{fmtC(opp.poly.price)}</td>
                   <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${!buyPoly ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-rose-600 dark:text-rose-400"}`}>{fmtC(opp.kalshi.price)}</td>
@@ -783,9 +784,19 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
         {/* Header */}
         <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b px-6 py-4 flex items-start gap-3">
           <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1.5">
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               <CategoryBadge cat={opp.category}/>
-              <span className="text-[10px] text-muted-foreground font-mono truncate max-w-xs">{opp.id}</span>
+              <span className="text-[10px] text-muted-foreground font-mono truncate max-w-[180px]">{opp.id}</span>
+              {opp.slug && (
+                <a href={`https://polymarket.com/event/${opp.slug}`} target="_blank" rel="noopener noreferrer"
+                   className="flex items-center gap-0.5 text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium shrink-0">
+                  <ExternalLink className="size-2.5"/>Poly
+                </a>
+              )}
+              <a href={`https://kalshi.com/markets/${opp.kalshi.ticker}`} target="_blank" rel="noopener noreferrer"
+                 className="flex items-center gap-0.5 text-[10px] text-[#00d090] hover:underline font-medium shrink-0">
+                <ExternalLink className="size-2.5"/>Kalshi
+              </a>
             </div>
             <h2 className="text-base font-semibold leading-snug pr-2">{opp.question}</h2>
           </div>
@@ -1350,6 +1361,31 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache }: {
   );
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function exportToCsv(opps: ScanOpp[]) {
+  const header = ["Question","Kalshi Title","Edge %","Edge ¢","Match","Direction","Poly Price ¢","Kalshi Price ¢","Closes","Category"].join(",");
+  const rows = opps.map(o =>
+    [
+      `"${o.question.replace(/"/g,'""')}"`,
+      `"${o.kalshi.title.replace(/"/g,'""')}"`,
+      o.netEdgePct.toFixed(2),
+      o.edgeCents,
+      o.matchQuality.grade,
+      o.direction,
+      Math.round(o.poly.price * 100),
+      Math.round(o.kalshi.price * 100),
+      `"${o.closes}"`,
+      o.category,
+    ].join(",")
+  );
+  const csv = [header, ...rows].join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = `arb-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function ArbPage() {
@@ -1712,6 +1748,10 @@ export default function ArbPage() {
                 {autoScan ? `Auto · ${countdown}s` : "Auto"}
               </button>
             </div>
+            <Button onClick={() => exportToCsv(filtered)} disabled={filtered.length === 0} size="sm" variant="outline" className="gap-1.5">
+              <Download className="size-3.5"/>
+              Export
+            </Button>
             <Button onClick={runScan} disabled={scanning} size="sm" className="gap-1.5">
               <Zap className="size-3.5"/>
               {scanning ? "Scanning…" : "Run Scan"}

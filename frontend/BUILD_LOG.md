@@ -981,3 +981,35 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A22** — to be defined. Candidates: Kalshi position tracking; per-pair alert threshold; LLM-scored match with resolution text visible in table (not just drawer); JSONL history visualization improvements.
+
+---
+
+## 2026-04-26T20:30:00Z — milestone A22: Venue deep links + CSV export + dual-title table column
+
+### What I did
+- Added `ExternalLink` and `Download` icons to lucide-react imports
+- Added `exportToCsv(opps: ScanOpp[])` helper: generates CSV with columns Question, Kalshi Title, Edge %, Edge ¢, Match, Direction, Poly Price ¢, Kalshi Price ¢, Closes, Category; uses `Blob` + `URL.createObjectURL` (client-side, no API route needed); downloads as `arb-{date}.csv`
+- Added "Export" button (`variant="outline"`) in the page header between Auto controls and Run Scan; disabled when no filtered results
+- Updated ArbDetail drawer header: added "↗ Poly" link (`https://polymarket.com/event/{slug}`) and "↗ Kalshi" link (`https://kalshi.com/markets/{ticker}`) as `<a target="_blank">` elements in the pair-ID row; Poly link is conditional on `opp.slug` being non-empty
+- Updated TableView market cell: added `opp.kalshi.title` as a second line below `opp.question` (muted, 10px, truncated), making false positives immediately visible without opening the drawer
+
+### Tradeoffs / shortcuts
+- Kalshi URL (`/markets/{ticker}`) is a best-effort guess at the direct market page URL; if Kalshi's routing doesn't handle the full ticker, the link may redirect to their homepage rather than the specific market — acceptable for a localhost tool
+- CSV export is fully client-side — no new API route; the file downloads instantly
+- Dual-title row slightly increases table row height (adds ~14px); did not change the overall table layout
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` — 35/35 pass
+- Browser: ran scan → Table view → first row market cell shows "Trump out as President before GTA VI?" (Polymarket) + "Will Trump end the Federal Reserve before Jan 20, 2029?" (Kalshi) on separate lines
+- Clicked first row → drawer header shows "↗ Poly" (`polymarket.com/event/trump-out-as-president-before-gta-vi-846`) and "↗ Kalshi" (`kalshi.com/markets/KXFEDEND-29-JAN20`) links confirmed via DOM inspection
+- Screenshot confirms: all three features visible, no console errors
+
+### Follow-ups for future runs
+- Verify Kalshi deep-link URL format resolves correctly in a real browser (may need to adjust to series-based URL e.g. `/markets/KXFEDEND`)
+- Per-pair alert threshold still outstanding
+- Kalshi position tracking still outstanding
+- Could add the AI score column to the CSV export when `aiScoreCache` contains results
+
+### Next milestone to pick up
+**A23** — to be defined. Candidates: per-pair alert threshold (notify only when a starred pair crosses a custom threshold); Kalshi position tracking; AI score visible in table (without opening drawer) using the session cache.
