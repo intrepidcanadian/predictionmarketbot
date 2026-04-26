@@ -804,4 +804,46 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - LLM-assisted match scoring (display-only) is the next high-value improvement for reducing false positives
 
 ### Next milestone to pick up
-**A17** — to be defined. Candidates: LLM-assisted match scoring (display-only similarity between market questions, not in trade path); Kalshi position tracking; Select all / Clear all for Kalshi category pills.
+**A17** — LLM-assisted match scoring.
+
+---
+
+## 2026-04-26T15:30:00Z — milestone A17: LLM-assisted match scoring
+
+### What I did
+- Created `app/api/arb/match-score/route.ts` — POST handler:
+  - Accepts `{ poly_question, kalshi_title }` in body
+  - Returns 503 with setup message if `ANTHROPIC_API_KEY` is not set
+  - Calls `claude-haiku-4-5-20251001` with a cached system prompt (ephemeral cache_control on system block)
+  - Asks Claude to score 0–100 and give a one-sentence verdict; strips accidental code fences from response
+  - Derives grade: score ≥70 → H, ≥40 → M, <40 → L
+  - Returns `{ score, verdict, grade }`
+- Added `AiMatch` interface to `app/arb/page.tsx`
+- Added `aiMatch`, `aiMatchLoading`, `aiMatchError` state to `ArbDetail`
+- Added `useEffect` on `opp.id`: fires POST to `/api/arb/match-score`; clears previous result on each new pair
+- Added "AI Similarity" card in the detail drawer (between match quality card and resolution criteria):
+  - Header: "AI Similarity" + "claude-haiku · display only" sub-label
+  - Loading: two skeleton bars while request in flight
+  - Error: config prompt if API key missing; error message otherwise
+  - Result: `MatchBadge` (H/M/L) + filled progress bar (emerald/amber/muted) + score % + italic one-sentence verdict
+
+### Tradeoffs / shortcuts
+- Uses market question + Kalshi title only (not full resolution text) — fast and cheap; adding description text would improve accuracy but double latency
+- `claude-haiku-4-5-20251001` chosen for speed (< 1s typical) and cost; ephemeral cache_control on system prompt for prompt caching benefit on repeated calls
+- No caching of results — each pair open fires a fresh API call; at haiku pricing this is negligible for a localhost tool
+- LLM is NOT in the trade path — the score is display-only; the executor uses only deterministic rule conditions
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: ran scan → clicked first row → "AI Similarity" card appeared in drawer with "Set ANTHROPIC_API_KEY in frontend/.env.local to enable AI match scoring." message (correct graceful fallback)
+- `h3` headings in drawer confirmed: Spread decomposition · Order books · Spread history · Capital → Profit · AI Similarity · (Resolution criteria)
+- No console errors
+
+### Follow-ups for future runs
+- Set `ANTHROPIC_API_KEY` in `frontend/.env.local` to test live scoring
+- Could pass the full resolution text (from `/api/arb/resolution`) to the LLM for higher accuracy — would require fetching resolution first or a second API call
+- Could cache scores per `opp.id` in a Map ref to avoid re-fetching when the user reopens the same pair
+
+### Next milestone to pick up
+**A18** — to be defined. Candidates: cache AI scores per session (avoid re-fetching same pair); pass resolution text to improve scoring accuracy; Kalshi position tracking.

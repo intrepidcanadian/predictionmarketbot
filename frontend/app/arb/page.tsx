@@ -583,6 +583,12 @@ interface OrderbookData {
   kalshi: { yes_bid: number; yes_ask: number; no_bid: number; no_ask: number } | null;
 }
 
+interface AiMatch {
+  score: number;
+  verdict: string;
+  grade: "H" | "M" | "L";
+}
+
 function ArbDetail({ opp, onClose, isWatched, onStar }: { opp: ScanOpp; onClose: () => void; isWatched: boolean; onStar: () => void }) {
   const router = useRouter();
   const [capital,      setCapital]     = useState(1000);
@@ -593,6 +599,9 @@ function ArbDetail({ opp, onClose, isWatched, onStar }: { opp: ScanOpp; onClose:
   const [obLoading,    setObLoading]   = useState(false);
   const [history,      setHistory]     = useState<HistoryEntry[]>([]);
   const [copied,       setCopied]      = useState(false);
+  const [aiMatch,      setAiMatch]     = useState<AiMatch | null>(null);
+  const [aiMatchLoading, setAiMatchLoading] = useState(false);
+  const [aiMatchError, setAiMatchError] = useState<string | null>(null);
 
   useEffect(() => {
     setHistory([]);
@@ -614,6 +623,24 @@ function ArbDetail({ opp, onClose, isWatched, onStar }: { opp: ScanOpp; onClose:
       .then(d => { if (d) setOrderbook(d as OrderbookData); })
       .finally(() => setObLoading(false));
   }, [opp.token_id, opp.kalshi.ticker]);
+
+  useEffect(() => {
+    setAiMatch(null);
+    setAiMatchError(null);
+    setAiMatchLoading(true);
+    fetch("/api/arb/match-score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ poly_question: opp.question, kalshi_title: opp.kalshi.title }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) setAiMatchError(d.error);
+        else setAiMatch(d as AiMatch);
+      })
+      .catch(() => setAiMatchError("Network error"))
+      .finally(() => setAiMatchLoading(false));
+  }, [opp.id]);
 
   const buyPoly   = opp.direction === "buy_poly_sell_kalshi";
   const buyVenue  = buyPoly ? "poly" : "kalshi";
@@ -959,6 +986,42 @@ function ArbDetail({ opp, onClose, isWatched, onStar }: { opp: ScanOpp; onClose:
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* AI Similarity */}
+          <div className="rounded-xl border bg-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">AI Similarity</h3>
+              <span className="text-[10px] text-muted-foreground">claude-haiku · display only</span>
+            </div>
+            {aiMatchLoading && (
+              <div className="space-y-2">
+                <div className="h-3 w-3/4 rounded bg-muted animate-pulse"/>
+                <div className="h-3 w-1/2 rounded bg-muted animate-pulse"/>
+              </div>
+            )}
+            {aiMatchError && !aiMatchLoading && (
+              <p className="text-[11px] text-muted-foreground">
+                {aiMatchError.includes("ANTHROPIC_API_KEY")
+                  ? "Set ANTHROPIC_API_KEY in frontend/.env.local to enable AI match scoring."
+                  : `Error: ${aiMatchError}`}
+              </p>
+            )}
+            {aiMatch && !aiMatchLoading && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <MatchBadge grade={aiMatch.grade}/>
+                  <div className="flex-1 h-2 rounded-full bg-border overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${aiMatch.grade === "H" ? "bg-emerald-500" : aiMatch.grade === "M" ? "bg-amber-500" : "bg-muted-foreground"}`}
+                      style={{ width: `${aiMatch.score}%` }}
+                    />
+                  </div>
+                  <span className="text-sm font-semibold font-mono tabular-nums w-10 text-right">{aiMatch.score}%</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed italic">&ldquo;{aiMatch.verdict}&rdquo;</p>
+              </div>
+            )}
           </div>
 
           {/* Criteria side-by-side */}
