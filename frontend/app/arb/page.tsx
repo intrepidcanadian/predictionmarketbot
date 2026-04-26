@@ -320,7 +320,7 @@ function Sparkline({ data, w = 64, h = 18, className = "" }: { data: number[]; w
 
 // ── Table view ─────────────────────────────────────────────────────────────
 
-function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, onStar, aiScoreCache, aiScoreVersion, realHistRef, histVersion }: {
+function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, onStar, aiScoreCache, aiScoreVersion, realHistRef, histVersion, prevEdgeRef }: {
   opps: ScanOpp[]; onSelect: (o: ScanOpp) => void;
   sortBy: SortBy; setSortBy: (s: SortBy) => void; flashIds: Set<string>;
   watchlistIds: string[]; onStar: (id: string) => void;
@@ -328,6 +328,7 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
   aiScoreVersion?: number;
   realHistRef?: React.MutableRefObject<Map<string, number[]>>;
   histVersion?: number;
+  prevEdgeRef?: React.MutableRefObject<Map<string, number>>;
 }) {
   const sorted = [...opps].sort((a, b) =>
     sortBy === "edge"  ? b.netEdgePct - a.netEdgePct :
@@ -378,7 +379,22 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
                   <td className="pl-3 pr-1 py-2.5" onClick={e => { e.stopPropagation(); onStar(opp.id); }}>
                     <Star className={`size-3.5 transition-colors ${watchlistIds.includes(opp.id) ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30 hover:text-amber-400"}`}/>
                   </td>
-                  <td className="px-3 py-2.5"><EdgePill pct={opp.netEdgePct}/></td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-1">
+                      <EdgePill pct={opp.netEdgePct}/>
+                      {(() => {
+                        const prev = prevEdgeRef?.current?.get(opp.id);
+                        if (prev === undefined) return null;
+                        const delta = opp.netEdgePct - prev;
+                        if (Math.abs(delta) < 0.1) return null;
+                        return (
+                          <span className={`text-[9px] font-mono leading-none ${delta > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                            {delta > 0 ? "↑" : "↓"}{Math.abs(delta).toFixed(1)}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  </td>
                   <td className="px-3 py-2.5"><MatchBadge grade={opp.matchQuality.grade}/></td>
                   {hasAiScores && (
                     <td className="px-3 py-2.5">
@@ -1459,6 +1475,7 @@ export default function ArbPage() {
   const [countdown,    setCountdown]    = useState(120);
   const [changedCount, setChangedCount] = useState<number | null>(null);
   const prevOppsRef      = useRef<ScanOpp[]>([]);
+  const prevEdgeRef      = useRef<Map<string, number>>(new Map());
   const autoRunRef       = useRef<() => void>(() => {});
   const pendingPairRef   = useRef<string | null>(null);
   const aiScoreCacheRef  = useRef<Map<string, AiMatch>>(new Map());
@@ -1663,6 +1680,9 @@ export default function ArbPage() {
         const removed = [...prevIds].filter(id => !newIds.has(id)).length;
         setChangedCount(moved + added + removed);
       }
+      const edgeSnapshot = new Map<string, number>();
+      for (const o of prevOppsRef.current) edgeSnapshot.set(o.id, o.netEdgePct);
+      prevEdgeRef.current = edgeSnapshot;
       prevOppsRef.current = top;
       setOpps(top);
 
@@ -2102,7 +2122,7 @@ export default function ArbPage() {
         )}
         {!scanning && filtered.length > 0 && (
           <>
-            {view === "table"  && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion} realHistRef={realHistRef} histVersion={histVersion}/>}
+            {view === "table"  && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion} realHistRef={realHistRef} histVersion={histVersion} prevEdgeRef={prevEdgeRef}/>}
             {view === "cards"  && <CardView  opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist} realHistRef={realHistRef}/>}
             {view === "ticker" && <TickerView opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
             <p className="text-[10px] text-muted-foreground text-center mt-6 font-mono">
