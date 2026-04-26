@@ -946,3 +946,38 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A21** — to be defined. Candidates: shared-terms section in resolution diff (positive signal); Kalshi position tracking; per-pair alert threshold (notify only when specific pair crosses its own threshold, not a global threshold).
+
+---
+
+## 2026-04-26T19:30:00Z — milestone A21: Shared key terms + min liquidity filter
+
+### What I did
+- Extended `computeResDiff` to return `shared: string[]` in addition to `polyOnly`/`kalshiOnly` — intersection of both term sets, capped at 10 tokens
+- Updated resolution diff panel ("KEY TERM DIFF") to show a third row: "Shared terms — positive signal for true match" with violet chip styling; only renders when `shared.length > 0`
+- Renamed column headers from "Poly-only terms"/"Kalshi-only terms" to "Poly-only"/"Kalshi-only" (shorter) to leave visual room for the shared row
+- Added `minLiquidity` persisted pref (`arb:min-liq`, default `0`) via `usePref`
+- Updated `filtered` useMemo to include `Math.min(opp.poly.liquidity, opp.kalshi.liquidity) >= minLiquidity` guard (skipped when `minLiquidity === 0`)
+- Added "Liq: Any | $500 | $1K | $5K" pill group in the filter row before the Min edge slider
+
+### Tradeoffs / shortcuts
+- Shared terms only appear when count > 0 — for clear false positives (different topics) this section is absent, which is the correct positive-UX signal
+- `minLiquidity` filters on `Math.min(poly.liq, kalshi.liq)` — the binding constraint is the tighter side; this correctly hides thin-market pairs
+- All 21 current scan pairs have min-liq < $1K (keyword-matched false positives have $0 Kalshi liquidity), so $1K filter returns 0 results — this is correct behavior, not a bug
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` — 35/35 pass
+- Browser: ran scan → filter row shows "Liq: **Any** | $500 | $1K | $5K" pills
+- Clicked $1K → "0 of 21 total · No opportunities match these filters" confirmed; `localStorage.getItem('arb:min-liq')` = "1000"
+- Reset to Any → 3 opportunities restored
+- Clicked first card → KEY TERM DIFF showed Poly-only (blue) and Kalshi-only (emerald) tokens; no shared terms (correct — this is a false positive)
+- No console errors
+
+### Follow-ups for future runs
+- Shared terms will appear for genuine arb pairs (same-topic markets) — not visible yet with current all-false-positive keyword matches
+- Kalshi position tracking still outstanding
+- Per-pair alert threshold outstanding
+- Could add a "Show table view" switch in the filter row to make all views accessible without clicking the view toggle
+
+### Next milestone to pick up
+**A22** — to be defined. Candidates: Kalshi position tracking; per-pair alert threshold; LLM-scored match with resolution text visible in table (not just drawer); JSONL history visualization improvements.
