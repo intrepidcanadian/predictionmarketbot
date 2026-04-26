@@ -199,8 +199,8 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string 
 }
 
 function EdgePill({ pct, size = "sm" }: { pct: number; size?: "sm" | "lg" }) {
-  const s = pct >= 5 ? "bg-emerald-500/15 text-emerald-700 ring-emerald-500/30"
-          : pct >= 3 ? "bg-amber-500/15 text-amber-700 ring-amber-500/30"
+  const s = pct >= 5 ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-emerald-500/30"
+          : pct >= 3 ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 ring-amber-500/30"
           : "bg-muted text-muted-foreground ring-border";
   return (
     <span className={`inline-flex items-center font-semibold rounded-md ring-1 tabular-nums ${s} ${size === "lg" ? "text-base px-2.5 py-1" : "text-xs px-2 py-0.5"}`}>
@@ -210,12 +210,12 @@ function EdgePill({ pct, size = "sm" }: { pct: number; size?: "sm" | "lg" }) {
 }
 
 const CAT_COLORS: Record<string, string> = {
-  Politics: "bg-rose-500/10 text-rose-700 border-rose-500/20",
-  Crypto:   "bg-amber-500/10 text-amber-700 border-amber-500/20",
-  Macro:    "bg-blue-500/10 text-blue-700 border-blue-500/20",
-  Sports:   "bg-violet-500/10 text-violet-700 border-violet-500/20",
-  Tech:     "bg-cyan-500/10 text-cyan-700 border-cyan-500/20",
-  Finance:  "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
+  Politics: "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20",
+  Crypto:   "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
+  Macro:    "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20",
+  Sports:   "bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-500/20",
+  Tech:     "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/20",
+  Finance:  "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
 };
 
 function CategoryBadge({ cat }: { cat: string }) {
@@ -227,8 +227,8 @@ function CategoryBadge({ cat }: { cat: string }) {
 }
 
 function MatchBadge({ grade }: { grade: "H" | "M" | "L" }) {
-  const s = grade === "H" ? "bg-emerald-500/15 text-emerald-700 ring-emerald-500/30"
-          : grade === "M" ? "bg-amber-500/15 text-amber-700 ring-amber-500/30"
+  const s = grade === "H" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-emerald-500/30"
+          : grade === "M" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 ring-amber-500/30"
           : "bg-muted text-muted-foreground ring-border";
   const label = grade === "H" ? "High" : grade === "M" ? "Med" : "Low";
   return (
@@ -253,8 +253,8 @@ function Sparkline({ data, w = 64, h = 18, className = "" }: { data: number[]; w
   const pts = data.map((v, i) => `${((i / (data.length - 1)) * w).toFixed(1)},${(h - ((v - min) / range) * (h - 2) - 1).toFixed(1)}`).join(" ");
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className={`overflow-visible ${className}`} preserveAspectRatio="none">
-      <polygon points={`0,${h} ${pts} ${w},${h}`} fill="#16a34a" opacity={0.12}/>
-      <polyline points={pts} fill="none" stroke="#16a34a" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+      <polygon points={`0,${h} ${pts} ${w},${h}`} fill="currentColor" opacity={0.12}/>
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
@@ -314,12 +314,12 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds }: {
                       <span className="font-medium truncate">{opp.question}</span>
                     </div>
                   </td>
-                  <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${buyPoly ? "text-emerald-600 font-semibold" : "text-rose-600"}`}>{fmtC(opp.poly.price)}</td>
-                  <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${!buyPoly ? "text-emerald-600 font-semibold" : "text-rose-600"}`}>{fmtC(opp.kalshi.price)}</td>
+                  <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${buyPoly ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-rose-600 dark:text-rose-400"}`}>{fmtC(opp.poly.price)}</td>
+                  <td className={`px-3 py-2.5 text-right font-mono tabular-nums ${!buyPoly ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-rose-600 dark:text-rose-400"}`}>{fmtC(opp.kalshi.price)}</td>
                   <td className="px-3 py-2.5 text-right font-mono tabular-nums">{opp.edgeCents}¢</td>
                   <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">{fmtUsd(opp.capitalCap)}</td>
                   <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">{timeUntil(opp.closes)}</td>
-                  <td className="px-3 py-2.5 text-right"><Sparkline data={opp.history} className="w-16 h-4 inline-block"/></td>
+                  <td className="px-3 py-2.5 text-right"><Sparkline data={opp.history} className="w-16 h-4 inline-block text-emerald-600 dark:text-emerald-400"/></td>
                   <td className="pr-3 text-muted-foreground">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3.5"><path d="M9 5l7 7-7 7"/></svg>
                   </td>
@@ -378,7 +378,7 @@ function CardView({ opps, onSelect }: { opps: ScanOpp[]; onSelect: (o: ScanOpp) 
                   <div className="flex items-center justify-between text-[10px] text-muted-foreground border-t pt-2">
                     <span>Cap: <span className="font-mono text-foreground">{fmtUsd(opp.capitalCap)}</span></span>
                     <span>Closes: <span className="font-mono text-foreground">{timeUntil(opp.closes)}</span></span>
-                    <Sparkline data={opp.history} className="w-12 h-3"/>
+                    <Sparkline data={opp.history} className="w-12 h-3 text-emerald-600 dark:text-emerald-400"/>
                   </div>
                 </button>
               );
@@ -456,7 +456,7 @@ function OrderBookSide({ side, levels }: { side: "bid" | "ask"; levels: { price:
         return (
           <div key={i} className="relative flex items-center justify-between text-[11px] font-mono px-2 py-1 rounded">
             <div className={`absolute inset-y-0 ${side === "bid" ? "right-0 bg-emerald-500" : "left-0 bg-rose-500"} opacity-15 rounded`} style={{ width: `${pct}%` }}/>
-            <span className={`relative ${side === "bid" ? "text-emerald-600" : "text-rose-600"}`}>{fmtC(l.price)}</span>
+            <span className={`relative ${side === "bid" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{fmtC(l.price)}</span>
             <span className="relative text-muted-foreground">${l.size}</span>
           </div>
         );
@@ -481,10 +481,10 @@ function VenueBook({ venue, price, side, liquidity, fee, action, clob, clobLoadi
         <div className="flex items-center gap-2">
           <VenueChip venue={venue} size="md"/>
           <span className="font-semibold text-sm">{venue === "poly" ? "Polymarket" : "Kalshi"}</span>
-          {isLive && <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 font-bold tracking-wider">LIVE</span>}
+          {isLive && <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-bold tracking-wider">LIVE</span>}
           {clobLoading && <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground animate-pulse">…</span>}
         </div>
-        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${action === "BUY" ? "bg-emerald-500/15 text-emerald-700" : "bg-rose-500/15 text-rose-700"}`}>
+        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${action === "BUY" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-rose-500/15 text-rose-700 dark:text-rose-400"}`}>
           {action} {side}
         </span>
       </div>
@@ -642,7 +642,7 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
                   {obLoading && <span className="text-[9px] animate-pulse">loading…</span>}
                 </div>
                 {execSpread !== null ? (
-                  <div className={`text-lg font-semibold font-mono mt-0.5 ${execSpread > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                  <div className={`text-lg font-semibold font-mono mt-0.5 ${execSpread > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
                     {execSpread >= 0 ? "+" : ""}{Math.round(execSpread * 100)}¢
                   </div>
                 ) : (
@@ -665,7 +665,7 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
               ["Gross spread",           grossPerContract,         "text-foreground",  false],
               ["Poly fee (2% taker)",    -polyFeePerContract,      "text-rose-600",    false],
               ["Kalshi fee (7% settle)", -kalshiFeePerContract,    "text-rose-600",    false],
-              ["Net spread",             netPerContract,           netPerContract > 0 ? "text-emerald-600" : "text-rose-600", true],
+              ["Net spread",             netPerContract,           netPerContract > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400", true],
             ] as [string, number, string, boolean][]).map(([label, val, cls, sep]) => (
               <div key={label} className={`flex items-center justify-between text-xs ${sep ? "pt-1.5 border-t mt-1 font-semibold" : "text-muted-foreground py-0.5"}`}>
                 <span>{label}</span>
@@ -679,7 +679,7 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
                 <div className="text-[10px] text-muted-foreground mb-1.5">CLOB ask prices (conservative)</div>
                 <div className="flex items-center justify-between text-xs font-semibold">
                   <span className="text-muted-foreground">Net (CLOB)</span>
-                  <span className={`font-mono ${clobNetPerContract > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                  <span className={`font-mono ${clobNetPerContract > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
                     {clobNetPerContract >= 0 ? "+" : "−"}{Math.abs(clobNetPerContract * 100).toFixed(1)}¢
                   </span>
                 </div>
@@ -690,10 +690,10 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
               <div className="flex items-center gap-3 font-mono">
                 {breakEvenFor10 != null
                   ? <span className="text-muted-foreground">{fmtUsd(breakEvenFor10)} mid</span>
-                  : <span className="text-rose-600">mid spread negative</span>}
+                  : <span className="text-rose-600 dark:text-rose-400">mid spread negative</span>}
                 {clobNetPerContract != null && (clobBreakEvenFor10 != null
-                  ? <span className={`font-semibold ${clobBreakEvenFor10 < 5000 ? "text-emerald-600" : "text-amber-600"}`}>{fmtUsd(clobBreakEvenFor10)} CLOB</span>
-                  : <span className="text-rose-600">CLOB spread negative</span>)}
+                  ? <span className={`font-semibold ${clobBreakEvenFor10 < 5000 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>{fmtUsd(clobBreakEvenFor10)} CLOB</span>
+                  : <span className="text-rose-600 dark:text-rose-400">CLOB spread negative</span>)}
               </div>
             </div>
           </div>
@@ -704,9 +704,9 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
             <div className="flex items-center gap-3 flex-wrap">
               <span className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
                 <VenueChip venue={buyVenue as "poly"|"kalshi"}/>
-                <span className="text-emerald-600 font-bold">BUY</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold">BUY</span>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-                <span className="text-rose-600 font-bold">SELL</span>
+                <span className="text-rose-600 dark:text-rose-400 font-bold">SELL</span>
                 <VenueChip venue={sellVenue as "poly"|"kalshi"}/>
               </span>
               <span className="text-xs text-muted-foreground">
@@ -785,7 +785,7 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
                         return (
                           <tr key={i} className={i === 0 ? "font-semibold" : "text-muted-foreground"}>
                             <td className="py-1">{ago}</td>
-                            <td className={`py-1 text-right ${e.net_edge_pct >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                            <td className={`py-1 text-right ${e.net_edge_pct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
                               {e.net_edge_pct >= 0 ? "+" : ""}{e.net_edge_pct.toFixed(1)}%
                             </td>
                             <td className="py-1 text-right">{e.edge_cents}¢</td>
@@ -820,7 +820,7 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
                 ["Shares",       shares.toFixed(1),   ""],
                 ["Gross profit", fmtUsd(grossProfit),  ""],
                 ["Fees",         `−${fmtUsd(fees)}`,   ""],
-                ["Net profit",   fmtUsd(netProfit),    "text-emerald-600 font-semibold"],
+                ["Net profit",   fmtUsd(netProfit),    "text-emerald-600 dark:text-emerald-400 font-semibold"],
               ].map(([k, v, cls]) => (
                 <div key={k} className="bg-card p-3">
                   <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{k}</div>
@@ -830,17 +830,17 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
             </div>
             <div className="flex items-center justify-between mt-3 pt-3 border-t text-xs">
               <span className="text-muted-foreground">Net return on capital</span>
-              <span className={`font-mono font-semibold ${netRet >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtPct(netRet)}</span>
+              <span className={`font-mono font-semibold ${netRet >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{fmtPct(netRet)}</span>
             </div>
           </div>
 
           {/* Resolution risk + match quality */}
           <div className={`rounded-xl border p-4 ${opp.matchQuality.grade === "H" ? "border-emerald-500/30 bg-emerald-500/5" : opp.matchQuality.grade === "M" ? "border-amber-500/30 bg-amber-500/5" : "border-rose-500/20 bg-rose-500/5"}`}>
             <div className="flex items-start gap-2">
-              <AlertTriangle className={`size-4 mt-0.5 shrink-0 ${opp.matchQuality.grade === "H" ? "text-emerald-600" : opp.matchQuality.grade === "M" ? "text-amber-600" : "text-rose-500"}`}/>
+              <AlertTriangle className={`size-4 mt-0.5 shrink-0 ${opp.matchQuality.grade === "H" ? "text-emerald-600 dark:text-emerald-400" : opp.matchQuality.grade === "M" ? "text-amber-600 dark:text-amber-400" : "text-rose-500 dark:text-rose-400"}`}/>
               <div className="flex-1 space-y-2.5">
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs font-semibold ${opp.matchQuality.grade === "H" ? "text-emerald-900" : opp.matchQuality.grade === "M" ? "text-amber-900" : "text-rose-900"}`}>
+                  <span className={`text-xs font-semibold ${opp.matchQuality.grade === "H" ? "text-emerald-900 dark:text-emerald-100" : opp.matchQuality.grade === "M" ? "text-amber-900 dark:text-amber-200" : "text-rose-900 dark:text-rose-200"}`}>
                     Match quality
                   </span>
                   <MatchBadge grade={opp.matchQuality.grade}/>
@@ -861,7 +861,7 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
                     </div>
                   ))}
                 </div>
-                <p className={`text-[11px] leading-relaxed ${opp.matchQuality.grade === "H" ? "text-emerald-900/80" : opp.matchQuality.grade === "M" ? "text-amber-900/80" : "text-rose-900/80"}`}>
+                <p className={`text-[11px] leading-relaxed ${opp.matchQuality.grade === "H" ? "text-emerald-900/80 dark:text-emerald-100/90" : opp.matchQuality.grade === "M" ? "text-amber-900/80 dark:text-amber-200/90" : "text-rose-900/80 dark:text-rose-200/90"}`}>
                   {opp.matchQuality.grade === "H"
                     ? "Strong keyword + date match — criteria likely identical."
                     : opp.matchQuality.grade === "M"
@@ -880,11 +880,11 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
             </div>
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
-                <p className="font-medium text-blue-600 mb-1.5">Polymarket</p>
+                <p className="font-medium text-blue-600 dark:text-blue-400 mb-1.5">Polymarket</p>
                 <p className="text-muted-foreground leading-relaxed">{opp.question}</p>
               </div>
               <div>
-                <p className="font-medium text-emerald-700 mb-1.5">Kalshi</p>
+                <p className="font-medium text-emerald-700 dark:text-emerald-400 mb-1.5">Kalshi</p>
                 <p className="text-muted-foreground leading-relaxed">{opp.kalshi.title}</p>
               </div>
             </div>
@@ -909,11 +909,11 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
               className="w-full rounded-xl border-2 border-dashed border-emerald-500/40 bg-emerald-500/5 p-4 hover:border-emerald-500/60 hover:bg-emerald-500/8 transition-all text-left"
             >
               <div className="flex items-center gap-3">
-                <div className="size-9 rounded-lg bg-emerald-500/15 grid place-items-center text-emerald-700 shrink-0">
+                <div className="size-9 rounded-lg bg-emerald-500/15 grid place-items-center text-emerald-700 dark:text-emerald-400 shrink-0">
                   <Plus className="size-4"/>
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold text-emerald-700">Create Rule from this arb</div>
+                  <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Create Rule from this arb</div>
                   <div className="text-xs text-muted-foreground">Pre-fills rule builder with price_cross trigger · limit_order · dry_run + manual approval on</div>
                 </div>
                 <ChevronRight className="ml-auto size-4 text-muted-foreground shrink-0"/>
@@ -967,7 +967,7 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
                   <div className="rounded-lg border bg-muted/30 p-3">
                     <div className="flex items-center gap-1.5 mb-1.5">
                       <VenueChip venue={buyPoly ? "poly" : "kalshi"}/>
-                      <span className="text-[10px] font-bold text-emerald-600 uppercase">Buy</span>
+                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">Buy</span>
                     </div>
                     <div className="font-mono text-sm font-semibold">{fmtC(buyPrice)}</div>
                     <div className="text-[10px] text-muted-foreground mt-0.5">{shares.toFixed(1)} {opp.poly.side} shares</div>
@@ -975,7 +975,7 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
                   <div className="rounded-lg border bg-muted/30 p-3">
                     <div className="flex items-center gap-1.5 mb-1.5">
                       <VenueChip venue={buyPoly ? "kalshi" : "poly"}/>
-                      <span className="text-[10px] font-bold text-rose-600 uppercase">Sell</span>
+                      <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase">Sell</span>
                     </div>
                     <div className="font-mono text-sm font-semibold">{fmtC(sellPrice)}</div>
                     <div className="text-[10px] text-muted-foreground mt-0.5">{shares.toFixed(1)} {opp.poly.side} shares</div>
@@ -990,16 +990,16 @@ function ArbDetail({ opp, onClose }: { opp: ScanOpp; onClose: () => void }) {
                   </div>
                   <div>
                     <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Fees</div>
-                    <div className="font-mono text-sm font-semibold mt-0.5 text-rose-600">−{fmtUsd(fees)}</div>
+                    <div className="font-mono text-sm font-semibold mt-0.5 text-rose-600 dark:text-rose-400">−{fmtUsd(fees)}</div>
                   </div>
                   <div>
                     <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Net profit</div>
-                    <div className={`font-mono text-sm font-semibold mt-0.5 ${netProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtUsd(netProfit)}</div>
+                    <div className={`font-mono text-sm font-semibold mt-0.5 ${netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{fmtUsd(netProfit)}</div>
                   </div>
                 </div>
 
                 {!opp.condition_id && (
-                  <div className="rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-800 text-[11px] px-3 py-2 mb-4">
+                  <div className="rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-[11px] px-3 py-2 mb-4">
                     ⚠ No condition ID — order will be rejected. Re-run the scan to refresh market data.
                   </div>
                 )}
