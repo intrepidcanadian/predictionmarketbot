@@ -112,7 +112,7 @@ interface ScanOpp {
 }
 
 type ViewMode = "table" | "cards" | "ticker";
-type SortBy   = "edge" | "size" | "closes" | "match";
+type SortBy   = "edge" | "size" | "closes" | "match" | "ai";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -331,6 +331,7 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
     sortBy === "edge"  ? b.netEdgePct - a.netEdgePct :
     sortBy === "size"  ? b.capitalCap - a.capitalCap :
     sortBy === "match" ? b.matchQuality.combined - a.matchQuality.combined :
+    sortBy === "ai"    ? (aiScoreCache?.current?.get(b.id)?.score ?? -1) - (aiScoreCache?.current?.get(a.id)?.score ?? -1) :
     new Date(a.closes).getTime() - new Date(b.closes).getTime()
   );
 
@@ -340,7 +341,7 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
     { key: "star",   label: "" },
     { key: "edge",   label: "Edge",        sort: "edge" },
     { key: "match",  label: "Match",       sort: "match" as SortBy },
-    ...(hasAiScores ? [{ key: "ai", label: "AI" }] : []),
+    ...(hasAiScores ? [{ key: "ai", label: "AI", sort: "ai" as SortBy }] : []),
     { key: "market", label: "Market" },
     { key: "poly",   label: "Polymarket",  right: true },
     { key: "kalshi", label: "Kalshi",      right: true },

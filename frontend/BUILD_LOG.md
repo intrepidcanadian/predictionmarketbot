@@ -1076,3 +1076,31 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A25** — to be defined. Candidates: sort by AI score; Kalshi position tracking; JSONL history pruning per-pair visualization.
+
+---
+
+## 2026-04-27T00:00:00Z — milestone A25: Sort by AI score
+
+### What I did
+- Added `"ai"` to the `SortBy` union type (was `"edge" | "size" | "closes" | "match"`)
+- Updated `TableView` sort comparator: `sortBy === "ai"` case uses `aiScoreCache?.current?.get(b.id)?.score ?? -1` descending; unscored pairs (`-1`) automatically sink to the bottom
+- Added `sort: "ai" as SortBy` to the AI column definition in `cols` — makes the "AI" column header clickable with `↓` active indicator when that sort is active
+- Column + sort only appear when `hasAiScores` is true (i.e. at least one score has arrived from Haiku this session) — no UI change when API key is absent
+
+### Tradeoffs / shortcuts
+- AI column is session-scoped (cache is a `Map` ref, not persisted) — sort resets on page reload; acceptable since the cache repopulates as the user opens pairs
+- Unscored pairs use `-1` sentinel (not `0`) so they always rank below any real score; avoids false ties with actual 0-score pairs (which would mean "completely unrelated", a valid score)
+- No new API routes, no executor changes
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: `/arb` page loads cleanly, no console errors; AI column correctly absent (no API key set, `hasAiScores === false`); AI column will become sortable once `ANTHROPIC_API_KEY` is set and first pair is scored
+
+### Follow-ups for future runs
+- Kalshi position tracking still outstanding
+- Could persist AI scores to `arb-history.jsonl` or a dedicated cache file so sort survives page reload
+- Per-pair JSONL history visualization improvements outstanding
+
+### Next milestone to pick up
+**A26** — to be defined. Candidates: Kalshi position tracking; persist AI scores across sessions; JSONL history visualization improvements.
