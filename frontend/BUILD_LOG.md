@@ -4,6 +4,70 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ---
 
+## 2026-04-27T06:00:00Z — milestone A42: Hydration fix + close-date in drawer header
+
+### What I did
+- Changed `usePref` hook from lazy `useState(() => reads localStorage)` to `useState(init)` + `React.useLayoutEffect` pattern: server and client always hydrate with identical `init` values, then `useLayoutEffect` syncs from localStorage after mount without causing a paint-visible flash
+- Added `suppressHydrationWarning` to all six groups of persisted filter pill buttons (Kalshi category, view mode, category, match, liquidity, date-gap) as belt-and-suspenders to silence any residual attribute mismatches
+- Added close-date row in `ArbDetail` drawer header below the question title: shows "Poly closes [date] · Kalshi closes [date] · Xmo gap"; gap colored amber (>90d) or rose (>365d) matching the existing date-gap color scale
+
+### Tradeoffs / shortcuts
+- `React.useLayoutEffect` runs synchronously after DOM commit (before first browser paint), so there's no flash when stored prefs differ from init — users see their saved filters instantly without a flicker
+- `suppressHydrationWarning` is a per-element escape hatch that suppresses the React error without fixing the root cause at the framework level; the `useLayoutEffect` pattern IS the correct fix, and `suppressHydrationWarning` is extra insurance given how Next.js App Router handles `"use client"` component hydration
+- Close-date row re-uses `dateGapDays` + `fmtDateGap` helpers already present in the file — no new code needed beyond the JSX
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors (exit code 0)
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: `__RELOAD_MARKER__` technique confirmed ZERO new hydration errors appear after a fresh page load with empty localStorage; all 22 previously logged errors are pre-fix accumulated noise
+- Kalshi category pills all render as active (bg-foreground) on fresh load — matches `init = [...KALSHI_CATS]` correctly
+- Opened first arb pair drawer: "Poly closes May 31, 2026 · Kalshi closes Mar 1, 2027 · 9mo gap" visible below question title in amber
+
+### Follow-ups for future runs
+- The `usePref` useLayoutEffect approach is correct but Next.js still technically SSR-renders with `init` and then patches — long term, marking the page as `dynamic = 'force-dynamic'` or using `next/dynamic` with `ssr: false` would be a cleaner architectural fix
+- Could add the Poly/Kalshi close dates to the TableView "Closes" column (currently shows only one date via `timeUntil(opp.closes)`)
+
+### Next milestone to pick up
+**A43** — (to be defined) — suggestions: close-date in TableView Closes column tooltip; per-pair Kalshi close date vs Poly end date sort; `dynamic = 'force-dynamic'` for arb page to eliminate SSR overhead entirely
+
+---
+
+## 2026-04-27T03:00:00Z — milestone A41: Date-gap filter + gap label
+
+### What I did
+- Added `dateGapDays(a, b)` helper: returns `|a − b|` in fractional days (null when either date missing)
+- Added `fmtDateGap(days)` helper: formats as `<1d / Nd / Nmo / N.Xy`
+- Added `maxDateGap` filter state via `usePref("arb:max-date-gap", 0)` — survives page reloads
+- Updated `filtered` predicate: when `maxDateGap > 0`, excludes pairs where `dateGapDays(polyCloses, closes) > maxDateGap`; pairs with no Poly close date pass through (avoids false negatives)
+- Added "Dates: Any/≤30d/≤90d/≤180d/≤365d" filter pill group in the filter row (after "Liq:"); each pill has a descriptive `title` tooltip
+- Wired `maxDateGap` into `selectOpp` URL encoding (`max_date_gap` param) and mount URL-param restoration
+- Updated TableView Match column: shows `MatchBadge` + a `Xmo gap` / `Xy gap` sub-label in amber (>90d) or rose (>365d) so false positives are scannable at a glance without opening the drawer
+- Updated ArbDetail "Date proximity" hint in the match quality breakdown panel: shows `"3.2y apart"` / `"45d apart"` instead of the generic `"far apart"` string
+
+### Tradeoffs / shortcuts
+- Filter passes through pairs with no `polyCloses` (null gap) to avoid hiding real opportunities in markets that don't expose close dates; this is conservative but correct
+- Gap threshold options are fixed (30/90/180/365d); could be a freeform number input in a future run
+- Hydration warnings in the console are pre-existing (Kalshi category buttons + `usePref` on SSR) — not introduced by this change
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors (confirmed twice)
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: snapshot loaded (25 pairs), filter row shows "Dates: Any ≤30d ≤90d ≤180d ≤365d"
+- Match column shows colored gap labels: "9mo gap" (amber) for ~9-month mismatch, "1.6y gap" / "3.6y gap" (rose) for year-level mismatches
+- Clicking ≤30d: LIVE OPPORTUNITIES drops to 0 (all 25 pairs are false positives with >30d date gap) — filter working correctly
+- Reset to Any: all 25 pairs return
+- No new console errors
+
+### Follow-ups for future runs
+- Could add a gap sort column or secondary sort key so "closest date match" surfaces highest
+- Could show the actual Poly/Kalshi close dates in the detail drawer header for quick reference
+- The hydration mismatch from `usePref` buttons is worth fixing (suppress SSR state mismatch with `suppressHydrationWarning` on affected buttons)
+
+### Next milestone to pick up
+**A42** — (to be defined) — suggestions: close-date display in drawer header; gap sort; hydration fix for `usePref` buttons; or a new feature direction
+
+---
+
 ## 2026-04-25T00:00:00Z — milestone M0: Scaffold + skeletal layout
 
 ### What I did

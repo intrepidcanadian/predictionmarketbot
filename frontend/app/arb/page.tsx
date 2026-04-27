@@ -10,13 +10,17 @@ import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, ChevronDown, 
 type SetState<T> = (v: T | ((prev: T) => T)) => void;
 
 function usePref<T>(key: string, init: T): [T, SetState<T>] {
-  const [val, setValRaw] = useState<T>(() => {
-    if (typeof window === "undefined") return init;
+  // Always init on first render so server HTML matches client hydration pass.
+  // After mount, useLayoutEffect reads from localStorage without causing a
+  // paint-visible flash (runs before the browser commits the frame).
+  const [val, setValRaw] = useState<T>(init);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  React.useLayoutEffect(() => {
     try {
       const s = localStorage.getItem(key);
-      return s !== null ? (JSON.parse(s) as T) : init;
-    } catch { return init; }
-  });
+      if (s !== null) setValRaw(JSON.parse(s) as T);
+    } catch {}
+  }, [key]);
   const setVal: SetState<T> = useCallback((action) => {
     setValRaw(prev => {
       const next = typeof action === "function" ? (action as (p: T) => T)(prev) : action;
@@ -1208,6 +1212,31 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
               </a>
             </div>
             <h2 className="text-base font-semibold leading-snug pr-2">{opp.question}</h2>
+            {/* Close-date row */}
+            {(() => {
+              const polyDate  = opp.matchQuality.polyCloses;
+              const kalshiDate = opp.closes;
+              const gap = dateGapDays(polyDate, kalshiDate);
+              const gapColor = gap === null ? "" : gap > 365 ? "text-rose-500 dark:text-rose-400" : gap > 90 ? "text-amber-500 dark:text-amber-400" : "text-muted-foreground";
+              const fmt = (iso?: string) => {
+                if (!iso) return "—";
+                const d = new Date(iso);
+                return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+              };
+              return (
+                <div className="flex items-center gap-2 mt-1.5 text-[10px] flex-wrap">
+                  <span className="text-muted-foreground">Poly closes <span className="font-mono text-foreground">{fmt(polyDate)}</span></span>
+                  <span className="text-border">·</span>
+                  <span className="text-muted-foreground">Kalshi closes <span className="font-mono text-foreground">{fmt(kalshiDate)}</span></span>
+                  {gap !== null && (
+                    <>
+                      <span className="text-border">·</span>
+                      <span className={`font-medium ${gapColor}`}>{fmtDateGap(gap)} gap</span>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
             {isWatched && (
               <div className="flex items-center gap-1 mt-2">
                 <span className="text-[10px] text-muted-foreground font-medium">Alert at:</span>
@@ -2608,7 +2637,7 @@ export default function ArbPage() {
         <div className="flex items-center gap-2 mb-5 flex-wrap">
           <span className="text-[11px] text-muted-foreground font-medium">Kalshi categories:</span>
           {KALSHI_CATS.map(c => (
-            <button key={c} onClick={() => toggleKalshiCat(c)}
+            <button key={c} suppressHydrationWarning onClick={() => toggleKalshiCat(c)}
               className={`h-6 px-2.5 rounded-md text-[10px] font-medium border transition-colors ${kalshiCats.has(c) ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
               {c}
             </button>
@@ -2670,7 +2699,7 @@ export default function ArbPage() {
             </div>
             <div className="inline-flex rounded-md border bg-card p-0.5">
               {([["table","Table","M3 6h18M3 12h18M3 18h18"],["cards","Cards","M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"],["ticker","Live","M3 12h4l3-9 4 18 3-9h4"]] as const).map(([v, label, path]) => (
-                <button key={v} onClick={() => setView(v as ViewMode)}
+                <button key={v} suppressHydrationWarning onClick={() => setView(v as ViewMode)}
                         className={`flex items-center gap-1.5 h-7 px-2.5 rounded text-xs font-medium transition-colors ${view === v ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3.5"><path d={path}/></svg>
                   {label}
@@ -2687,7 +2716,7 @@ export default function ArbPage() {
             </div>
             <div className="flex items-center gap-1 flex-wrap">
               {categories.map(c => (
-                <button key={c} onClick={() => setCat(c)}
+                <button key={c} suppressHydrationWarning onClick={() => setCat(c)}
                         className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${cat === c ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
                   {c === "all" ? "All" : c}
                 </button>
@@ -2696,7 +2725,7 @@ export default function ArbPage() {
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground font-medium mr-0.5">Match:</span>
               {([["all", "All", ""], ["M", "Med+", "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"], ["H", "High", "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"]] as const).map(([v, label, active]) => (
-                <button key={v} onClick={() => setMinMatch(v)}
+                <button key={v} suppressHydrationWarning onClick={() => setMinMatch(v)}
                         className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${minMatch === v ? (active || "bg-foreground text-background border-foreground") : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
                   {label}
                 </button>
@@ -2705,7 +2734,7 @@ export default function ArbPage() {
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground font-medium mr-0.5">Liq:</span>
               {([0, 500, 1000, 5000] as const).map(v => (
-                <button key={v} onClick={() => setMinLiquidity(v)}
+                <button key={v} suppressHydrationWarning onClick={() => setMinLiquidity(v)}
                         className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${minLiquidity === v ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
                   {v === 0 ? "Any" : v >= 1000 ? `$${v / 1000}K` : `$${v}`}
                 </button>
@@ -2714,7 +2743,7 @@ export default function ArbPage() {
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground font-medium mr-0.5">Dates:</span>
               {([0, 30, 90, 180, 365] as const).map(v => (
-                <button key={v} onClick={() => setMaxDateGap(v)}
+                <button key={v} suppressHydrationWarning onClick={() => setMaxDateGap(v)}
                         className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${maxDateGap === v ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}
                         title={v === 0 ? "Show all pairs regardless of close date mismatch" : `Hide pairs whose Poly and Kalshi close dates differ by more than ${v} days`}>
                   {v === 0 ? "Any" : `≤${v}d`}
