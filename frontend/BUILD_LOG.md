@@ -1478,3 +1478,32 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A39** — Candidates: forced-refresh button; scan-log CSV export; pair watchlist stats panel (total notional, best edge among starred pairs).
+
+---
+
+## 2026-04-27T10:00:00Z — milestone A39: Force-refresh + panel persistence + watchlist stats strip
+
+### What I did
+- **Scan route (`app/api/arb/scan/route.ts`)**: Changed `source` derivation so `body.force === true` sets `source = "forced"` automatically — the existing amber "FORCED" badge in the scan log now fires without any extra client-side header; cron callers still set `"cron"` via `X-Scan-Source` header
+- **Force button**: Added `RefreshCw`-icon "Force" outline button (h-8, `variant="outline"`) immediately left of "Run Scan"; both buttons share the `scanning` disabled state; "Force" calls `runScan(true)` (bypasses 5-min snapshot cache); tooltip: "Force refresh — bypass 5-min snapshot cache"
+- **Panel persistence**: Changed `showScanLog` and `showAlertLog` from `useState(false)` to `usePref<boolean>("arb:show-scan-log", false)` and `usePref<boolean>("arb:show-alert-log", false)` — panels now reopen on page reload if left open in a prior session
+- **Watchlist stats strip**: Added amber-bordered strip (rendered via IIFE when `showWatchlist && watchlistIds.length > 0 && opps.length > 0`) between the filter row and the views section; computes from `opps.filter(o => watchlistIds.includes(o.id))`; shows ★ icon, count, "Best: +X% pair title", "Avg edge: +Y%"; hidden entirely when watchlist is empty or inactive
+
+### Tradeoffs / shortcuts
+- Stats strip uses all starred opps (not the further-filtered `filtered` array) — best-edge and count are always about the full watchlist regardless of other active filters; a starred pair filtered out by minEdge still shows in the strip
+- Panel persistence via `usePref` picks up the pre-existing localStorage hydration mismatch (server renders `false`, client reads saved `true`) — React warns and corrects; same pre-existing behavior as other `usePref` booleans; no regression
+- `showScanLog`/`showAlertLog` keys are new (`arb:show-scan-log`, `arb:show-alert-log`); existing sessions that had them open will get `null` on first load (defaults to `false`), then persist correctly thereafter
+
+### Verified by
+- `node_modules/.bin/tsc --noEmit` — exit 0
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: page loaded; Force + Run Scan buttons visible in header; clicked Run Scan; scan completed ("scanned just now" label); watchlist active with 1 starred pair → amber stats strip appeared: "★ 1 starred · Best: +73.8% GTA VI released before June 2026? · Avg edge: +73.8%"
+- Screenshot confirmed all three A39 features rendering correctly
+
+### Follow-ups for future runs
+- Scan-log CSV export
+- Force button could show a flash/"bypassed cache" toast after completion
+- Stats strip could show total addressable capital across starred pairs
+
+### Next milestone to pick up
+**A40** — Candidates: scan-log CSV export; per-category spread heatmap; "stale cache" indicator when snapshot is >5min old
