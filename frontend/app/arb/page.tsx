@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, ChevronDown, Bell, History, Link2, Check, Star, X, ExternalLink, Download, Loader2, Sparkles } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, ChevronDown, Bell, History, Link2, Check, Star, X, ExternalLink, Download, Loader2, Sparkles, ClipboardList, Terminal } from "lucide-react";
 
 // ── localStorage preference hook ───────────────────────────────────────────
 
@@ -64,6 +64,15 @@ interface AlertLogEntry {
   direction: string;
   poly_price: number;
   kalshi_price: number;
+}
+
+interface ScanLogEntry {
+  ts: string;
+  source: string;
+  opps_count: number;
+  kalshi_count: number;
+  illiquid_filtered: number;
+  duration_ms: number;
 }
 
 interface KalshiPosition {
@@ -1914,6 +1923,10 @@ export default function ArbPage() {
   // Ref so runScan can read latest notify prefs without re-creating its callback
   const notifyRef = useRef({ enabled: false, threshold: 5 });
 
+  // Scan log
+  const [scanLog,     setScanLog]     = useState<ScanLogEntry[]>([]);
+  const [showScanLog, setShowScanLog] = useState(false);
+
   // Alert history log
   const [alertLog,      setAlertLog]      = useState<AlertLogEntry[]>([]);
   const [newAlertCount, setNewAlertCount] = useState(0);
@@ -1964,6 +1977,10 @@ export default function ArbPage() {
           setAiScoreVersion(entries.length);
         }
       })
+      .catch(() => {});
+    fetch("/api/arb/scan-log")
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setScanLog(d as ScanLogEntry[]))
       .catch(() => {});
     // Kalshi open positions (graceful: no-op when key absent)
     fetch("/api/arb/kalshi-positions")
@@ -2110,8 +2127,9 @@ export default function ArbPage() {
         }
       }
 
-      // History was written server-side; refresh sparklines
+      // History was written server-side; refresh sparklines + scan log
       refreshRealHist();
+      fetch("/api/arb/scan-log").then(r => r.ok ? r.json() : []).then(d => setScanLog(d as ScanLogEntry[])).catch(() => {});
     } finally {
       setScanning(false);
     }
@@ -2306,6 +2324,12 @@ export default function ArbPage() {
                   <History className="size-3.5"/>
                 </button>
               )}
+              <button
+                onClick={() => setShowScanLog(p => !p)}
+                title="Scan run log"
+                className={`h-8 w-8 rounded-md border transition-colors flex items-center justify-center ${showScanLog ? "bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/30" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
+                <ClipboardList className="size-3.5"/>
+              </button>
             </div>
             {/* Auto-scan controls */}
             <div className="flex items-center gap-1.5">
@@ -2430,6 +2454,56 @@ export default function ArbPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Scan log panel */}
+        {showScanLog && (
+          <div className="mb-5 rounded-xl border border-sky-500/20 bg-sky-500/5 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-sky-500/15">
+              <ClipboardList className="size-3.5 text-sky-500"/>
+              <span className="text-xs font-semibold text-sky-700 dark:text-sky-400 uppercase tracking-wider">Scan Log</span>
+              <span className="text-[10px] text-muted-foreground">{scanLog.length} recorded runs</span>
+              <button onClick={() => setShowScanLog(false)} className="ml-auto size-5 rounded hover:bg-muted/60 grid place-items-center text-muted-foreground">
+                <X className="size-3"/>
+              </button>
+            </div>
+            {scanLog.length === 0 ? (
+              <div className="px-4 py-4 text-[11px] text-muted-foreground">No scans recorded yet. Run a scan to populate this log.</div>
+            ) : (
+              <div className="divide-y divide-sky-500/10 max-h-52 overflow-y-auto">
+                {scanLog.slice(0, 20).map((e, i) => {
+                  const ago = (() => {
+                    const s = Math.floor((Date.now() - new Date(e.ts).getTime()) / 1000);
+                    if (s < 60) return `${s}s ago`;
+                    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+                    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+                    return `${Math.floor(s / 86400)}d ago`;
+                  })();
+                  return (
+                    <div key={i} className="flex items-center gap-3 px-4 py-2 text-[11px]">
+                      <span className="font-mono text-muted-foreground w-16 shrink-0">{ago}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase shrink-0 ${
+                        e.source === "cron" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
+                        e.source === "forced" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+                        "bg-sky-500/15 text-sky-700 dark:text-sky-400"
+                      }`}>{e.source}</span>
+                      <span className="font-mono font-semibold text-foreground shrink-0">{e.opps_count} opps</span>
+                      <span className="text-muted-foreground shrink-0">{e.kalshi_count}K mkt</span>
+                      {e.illiquid_filtered > 0 && <span className="text-muted-foreground shrink-0">{e.illiquid_filtered} illiq.</span>}
+                      <span className="font-mono text-muted-foreground ml-auto shrink-0">{e.duration_ms < 1000 ? `${e.duration_ms}ms` : `${(e.duration_ms / 1000).toFixed(1)}s`}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="border-t border-sky-500/15 px-4 py-2.5 flex items-start gap-2">
+              <Terminal className="size-3.5 text-muted-foreground shrink-0 mt-0.5"/>
+              <div className="min-w-0">
+                <p className="text-[10px] text-muted-foreground mb-1">Cron — run unattended scans every hour (add to <code className="font-mono">crontab -e</code>):</p>
+                <code className="text-[10px] font-mono text-foreground/80 break-all">0 * * * * curl -s -X POST http://localhost:3111/api/arb/scan -H &quot;Content-Type: application/json&quot; -H &quot;X-Scan-Source: cron&quot; -d &apos;{"{}"}&apos; &gt;&gt; /tmp/arb-scan.log</code>
+              </div>
             </div>
           </div>
         )}

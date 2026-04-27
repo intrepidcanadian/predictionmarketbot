@@ -22,10 +22,12 @@ const POLITICAL_SERIES = [
   "KXARRESTMAMDANI", "KXDJTPOSTMUSK", "KXDEPORTMUSK",
 ];
 
-const LATEST_FILE  = path.join(process.cwd(), "arb-latest.json");
-const HISTORY_FILE = path.join(process.cwd(), "arb-history.jsonl");
-const MAX_PER_PAIR = 100;
-const MAX_TOTAL    = 500;
+const LATEST_FILE   = path.join(process.cwd(), "arb-latest.json");
+const HISTORY_FILE  = path.join(process.cwd(), "arb-history.jsonl");
+const SCAN_LOG_FILE = path.join(process.cwd(), "scan-log.jsonl");
+const MAX_PER_PAIR  = 100;
+const MAX_TOTAL     = 500;
+const MAX_SCAN_LOG  = 100;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -66,6 +68,11 @@ interface HistoryEntry {
 interface ScanResult {
   opps: ScanOpp[]; scannedAt: string; cached: boolean;
   kalshiCount: number; illiquidFiltered: number;
+}
+
+interface ScanLogEntry {
+  ts: string; source: string; opps_count: number;
+  kalshi_count: number; illiquid_filtered: number; duration_ms: number;
 }
 
 // ── Pure helpers (mirrors page.tsx) ───────────────────────────────────────
@@ -276,6 +283,18 @@ async function appendHistory(entries: HistoryEntry[]): Promise<void> {
   } catch { /* non-fatal */ }
 }
 
+async function appendScanLog(entry: ScanLogEntry): Promise<void> {
+  try {
+    await fs.appendFile(SCAN_LOG_FILE, JSON.stringify(entry) + "\n", "utf-8");
+    // Prune to MAX_SCAN_LOG entries
+    const raw = await fs.readFile(SCAN_LOG_FILE, "utf-8");
+    const lines = raw.trim().split("\n").filter(Boolean);
+    if (lines.length > MAX_SCAN_LOG) {
+      await fs.writeFile(SCAN_LOG_FILE, lines.slice(-MAX_SCAN_LOG).join("\n") + "\n", "utf-8");
+    }
+  } catch { /* non-fatal */ }
+}
+
 // ── Route handlers ─────────────────────────────────────────────────────────
 
 /** GET — return the last cached snapshot (for instant page-load display) */
@@ -295,8 +314,10 @@ export async function GET() {
 
 /** POST — run a scan (or return cached result if fresh) */
 export async function POST(req: NextRequest) {
-  const body  = await req.json().catch(() => ({})) as { force?: boolean };
-  const force = body.force === true;
+  const body   = await req.json().catch(() => ({})) as { force?: boolean };
+  const force  = body.force === true;
+  const source = req.headers.get("x-scan-source") ?? "manual";
+  const t0     = Date.now();
 
   // Check cache
   if (!force) {
@@ -349,7 +370,9 @@ export async function POST(req: NextRequest) {
     kalshiCount: allKalshi.length, illiquidFiltered: totalIlliquid,
   };
 
-  // Persist snapshot + history (non-blocking failures are swallowed)
+  const duration_ms = Date.now() - t0;
+
+  // Persist snapshot + history + scan log (non-blocking failures are swallowed)
   await Promise.allSettled([
     fs.writeFile(LATEST_FILE, JSON.stringify(response), "utf-8"),
     appendHistory(top.map(o => ({
@@ -357,6 +380,11 @@ export async function POST(req: NextRequest) {
       question: o.question, net_edge_pct: o.netEdgePct,
       edge_cents: o.edgeCents, direction: o.direction,
     }))),
+    appendScanLog({
+      ts: scannedAt, source, opps_count: top.length,
+      kalshi_count: allKalshi.length, illiquid_filtered: totalIlliquid,
+      duration_ms,
+    }),
   ]);
 
   return NextResponse.json(response);
