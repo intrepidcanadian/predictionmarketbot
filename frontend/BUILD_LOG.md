@@ -1443,3 +1443,38 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A38** — Candidates: server-persisted watchlist; forced-refresh button; scan-log CSV export.
+
+---
+
+## 2026-04-27T09:00:00Z — milestone A38: Server-persisted watchlist
+
+### What I did
+- Created `app/api/arb/watchlist/route.ts`:
+  - `GET` — reads `frontend/arb-watchlist.json`, returns `{ ids: string[] }`; returns `{ ids: [] }` if file absent; `Cache-Control: no-store`
+  - `POST` — accepts `{ ids: string[] }`, writes to file; returns `{ ok: true }`
+- Added `syncWatchlist(ids: string[])` useCallback to `ArbPage`: fire-and-forget POST to `/api/arb/watchlist`; errors silently swallowed
+- Updated `toggleWatchlist`: computes the new array inside the functional update and calls `syncWatchlist(next)` — single write per star/unstar action
+- Updated mount `useEffect`: added `GET /api/arb/watchlist` fetch; when server returns non-empty `ids`, calls `setWatchlistIds(serverIds)` overriding localStorage; server is the source of truth when non-empty
+- Updated clear watchlist button `onClick`: added `syncWatchlist([])` after clearing local state
+
+### Tradeoffs / shortcuts
+- Mount fetch uses server-wins logic: if server has IDs, they replace localStorage. If server is empty, localStorage is kept. This means the first run after adding this feature will inherit whatever is in localStorage (correct behavior).
+- Fire-and-forget POST on every star/unstar means a failed write is silently lost — acceptable for a localhost tool where write failures are transient
+- `arb-watchlist.json` is a full-rewrite file (not append-only) — at ≤N pair IDs it's trivial; no pruning needed
+- The multiple GETs visible in the network log per load (mount + HMR re-mounts) are harmless; `Cache-Control: no-store` prevents stale data
+
+### Verified by
+- `node_modules/.bin/tsc --noEmit` — exit 0, no errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: `GET /api/arb/watchlist → {"ids":[]}` confirmed via eval on fresh page load
+- Round-trip: `POST /api/arb/watchlist {ids:["test-pair-123","test-pair-456"]}` → GET returned same IDs correctly
+- After `window.location.reload()`: network log showed `GET /api/arb/watchlist → 200 OK` at mount confirming mount effect fires with new code
+- Cleaned up test data via `POST {ids:[]}` after verification; no console errors introduced
+
+### Follow-ups for future runs
+- Forced-refresh button: pass `force: true` to `POST /api/arb/scan` to bypass the 5-min cache
+- Scan-log CSV export
+- `showScanLog` / `showAlertLog` are session-only state; could be persisted via `usePref` if frequently used
+
+### Next milestone to pick up
+**A39** — Candidates: forced-refresh button; scan-log CSV export; pair watchlist stats panel (total notional, best edge among starred pairs).
