@@ -1399,4 +1399,47 @@ All current milestones complete. Next run should define new A7+ milestones or co
 - Could also expand to Cards view (currently only TableView has the inline peek)
 
 ### Next milestone to pick up
-**A37** — Candidates: system cron setup + scan log viewer; server-persisted watchlist.
+**A38** — Candidates: server-persisted watchlist; forced-refresh button; scan-log CSV export.
+
+---
+
+## 2026-04-27T08:00:00Z — milestone A37: Scan log viewer + cron setup
+
+### What I did
+- Updated `app/api/arb/scan/route.ts`:
+  - Added `SCAN_LOG_FILE = path.join(process.cwd(), "scan-log.jsonl")` and `MAX_SCAN_LOG = 100`
+  - Added `ScanLogEntry` interface: `{ ts, source, opps_count, kalshi_count, illiquid_filtered, duration_ms }`
+  - Added `appendScanLog()` helper (appends entry, prunes file to `MAX_SCAN_LOG` lines)
+  - `POST` handler now reads `X-Scan-Source` request header (`"manual"` by default, `"cron"` for external callers), records `t0 = Date.now()`, and appends a `ScanLogEntry` alongside the existing history + snapshot writes
+- Created `app/api/arb/scan-log/route.ts`: `GET` reads `scan-log.jsonl`, reverses (newest first), returns up to 50 entries with `Cache-Control: no-store`
+- Updated `app/arb/page.tsx`:
+  - Added `ClipboardList` and `Terminal` to lucide-react imports
+  - Added `ScanLogEntry` interface
+  - Added `scanLog: ScanLogEntry[]` state and `showScanLog: boolean` state
+  - Mount `useEffect`: fetches `GET /api/arb/scan-log` on load, populates `scanLog`
+  - `runScan`: fires `GET /api/arb/scan-log` after each scan to refresh the log
+  - Header: added sky-themed `ClipboardList` icon button (title="Scan run log") next to the alert History button
+  - Panel (conditionally rendered when `showScanLog`): sky-bordered, shows last 20 entries with relative timestamp, source badge (sky=manual / emerald=cron / amber=forced), opps count, Kalshi market count, illiquid filtered count, and duration (ms or s); empty state when no runs yet; cron command at the bottom showing the `X-Scan-Source: cron` header invocation
+
+### Tradeoffs / shortcuts
+- Scan log is append-only with a simple tail-prune (last 100 lines); no per-source or per-day grouping — acceptable for a localhost tool
+- `source` is derived from the `X-Scan-Source` request header; the browser UI always sends the default ("manual"); cron jobs or curl callers can pass `"cron"` to make entries visually distinct
+- Panel shows last 20 entries (not all 50 returned by the API) to keep the panel compact; the full log is in the file and available via the API
+- `duration_ms` covers the full POST handler from `t0 = Date.now()` to just before the final `NextResponse.json(response)` — includes Kalshi fetch + Poly fetch + cross-match; excludes file I/O for log writes (those run in `Promise.allSettled`)
+
+### Verified by
+- `node_modules/.bin/tsc --noEmit` — exit 0, no errors
+- `python -m pytest` in executor/ — 35/35 pass
+- `GET /api/arb/scan-log → 200 OK` visible in mount network requests
+- Ran scan via eval → `scan-log.jsonl` created with entry: `{"ts":"2026-04-27T00:11:18.097Z","source":"manual","opps_count":25,"kalshi_count":125,"illiquid_filtered":4,"duration_ms":797}`
+- Clicked "Scan run log" button → panel opened showing "SCAN LOG · 1 recorded runs"; entry: "33s ago · MANUAL · 25 opps · 125K mkt · 4 illiq. · 797ms"; cron command visible at bottom
+- Screenshot confirmed: panel renders with sky border, source badge, and cron snippet
+
+### Follow-ups for future runs
+- Server-persisted watchlist: persist starred pair IDs to a JSON file so they survive page reloads across devices
+- Could add a "Forced" refresh button that passes `force: true` to `POST /api/arb/scan` and sets `source: "forced"`
+- Could add scan-log CSV export
+- `showScanLog` is session-only state (resets on reload) — could be persisted via `usePref` if frequently used
+
+### Next milestone to pick up
+**A38** — Candidates: server-persisted watchlist; forced-refresh button; scan-log CSV export.
