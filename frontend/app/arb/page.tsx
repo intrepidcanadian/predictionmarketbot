@@ -1959,6 +1959,14 @@ export default function ArbPage() {
     return `${Math.floor(s / 86400)}d ago`;
   }, [lastScannedAt, nowTick]);
 
+  const snapshotStaleness = useMemo((): "fresh" | "stale" | "very-stale" => {
+    if (!lastScannedAt) return "fresh";
+    const s = Math.floor((Date.now() - new Date(lastScannedAt).getTime()) / 1000);
+    if (s > 15 * 60) return "very-stale";
+    if (s > 5 * 60)  return "stale";
+    return "fresh";
+  }, [lastScannedAt, nowTick]);
+
   // Init permission from browser on mount; load snapshot; fetch alert log + AI cache; real history
   useEffect(() => {
     if (typeof Notification !== "undefined") setNotifyPerm(Notification.permission);
@@ -2397,8 +2405,16 @@ export default function ArbPage() {
                   disabled={scanning}
                   size="sm"
                   variant="outline"
-                  className="gap-1 text-xs h-8 px-2.5"
-                  title="Force refresh — bypass 5-min snapshot cache"
+                  className={`gap-1 text-xs h-8 px-2.5 transition-colors ${
+                    snapshotStaleness === "very-stale" ? "border-rose-500/60 text-rose-500 hover:text-rose-400" :
+                    snapshotStaleness === "stale"      ? "border-amber-500/60 text-amber-500 hover:text-amber-400" :
+                    ""
+                  }`}
+                  title={
+                    snapshotStaleness !== "fresh"
+                      ? `Data is ${snapshotStaleness === "very-stale" ? "very " : ""}stale — force refresh now`
+                      : "Force refresh — bypass 5-min snapshot cache"
+                  }
                 >
                   <RefreshCw className="size-3"/>
                   Force
@@ -2409,7 +2425,16 @@ export default function ArbPage() {
                 </Button>
               </div>
               {lastScannedLabel && !scanning && (
-                <span className="text-[10px] text-muted-foreground font-mono">scanned {lastScannedLabel}</span>
+                <span className={`text-[10px] font-mono flex items-center gap-1 ${
+                  snapshotStaleness === "very-stale" ? "text-rose-500" :
+                  snapshotStaleness === "stale"      ? "text-amber-500" :
+                  "text-muted-foreground"
+                }`}>
+                  {snapshotStaleness !== "fresh" && (
+                    <span className="animate-pulse leading-none">●</span>
+                  )}
+                  scanned {lastScannedLabel}
+                </span>
               )}
             </div>
           </div>

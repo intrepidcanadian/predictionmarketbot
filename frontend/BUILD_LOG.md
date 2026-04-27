@@ -1507,3 +1507,31 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A40** — Candidates: scan-log CSV export; per-category spread heatmap; "stale cache" indicator when snapshot is >5min old
+
+---
+
+## 2026-04-27T11:00:00Z — milestone A40: Stale cache warning
+
+### What I did
+- Added `snapshotStaleness` useMemo (depends on `lastScannedAt` + `nowTick`, same deps as `lastScannedLabel`) returning `"fresh" | "stale" | "very-stale"` based on age thresholds: fresh (<5min), stale (5–15min), very-stale (>15min)
+- Updated "scanned X ago" label `<span>`: dynamic `text-*` class (muted-foreground / amber-500 / rose-500); prepends a pulsing `<span className="animate-pulse">●</span>` when not fresh; added `flex items-center gap-1` for alignment
+- Updated Force button: border + text color mirrors staleness tier (amber-500/60 border, amber-500 text for stale; rose-500/60 / rose-500 for very-stale); tooltip changes to "Data is stale — force refresh now" when not fresh; `transition-colors` added for smooth tier transitions
+
+### Tradeoffs / shortcuts
+- `snapshotStaleness` is derived purely from `lastScannedAt` + `nowTick` (ticks every 30s) — the amber/rose threshold has up to 30s latency, which is imperceptible for 5-min/15-min boundaries
+- No new state or API calls — staleness is purely computed from existing state
+- The hydration errors in the console are pre-existing (from `usePref`-backed Kalshi category pills since A10); A40 introduces no new hydration mismatches
+
+### Verified by
+- `node_modules/.bin/tsc --noEmit` — exit 0, no errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser DOM eval: `{ className: "text-[10px] font-mono flex items-center gap-1 text-rose-500", text: "●scanned 41m ago" }` — rose color and pulsing dot present for 41min-old snapshot (> 15min → very-stale)
+- Screenshot confirmed: Force button has rose border, "● scanned 41m ago" label visible in rose below Run Scan button
+
+### Follow-ups for future runs
+- Scan-log CSV export still outstanding
+- Per-category spread heatmap
+- Could add a toast on Force completion ("Cache bypassed — fresh data loaded")
+
+### Next milestone to pick up
+**A41** — Candidates: scan-log CSV export; per-category spread heatmap; Polymarket position integration in arb drawer
