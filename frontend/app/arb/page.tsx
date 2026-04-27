@@ -1911,9 +1911,20 @@ export default function ArbPage() {
   // Watchlist
   const [watchlistIds,  setWatchlistIds]  = usePref<string[]>("arb:watchlist", []);
   const [showWatchlist, setShowWatchlist] = usePref<boolean>("arb:show-watchlist", false);
+  const syncWatchlist = useCallback((ids: string[]) => {
+    fetch("/api/arb/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }).catch(() => {});
+  }, []);
   const toggleWatchlist = useCallback((id: string) => {
-    setWatchlistIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  }, [setWatchlistIds]);
+    setWatchlistIds(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      syncWatchlist(next);
+      return next;
+    });
+  }, [setWatchlistIds, syncWatchlist]);
 
   // Notification state
   const [notifyEnabled,   setNotifyEnabled]   = usePref<boolean>("arb:notify", false);
@@ -1981,6 +1992,12 @@ export default function ArbPage() {
     fetch("/api/arb/scan-log")
       .then(r => r.ok ? r.json() : [])
       .then(d => setScanLog(d as ScanLogEntry[]))
+      .catch(() => {});
+    fetch("/api/arb/watchlist")
+      .then(r => r.ok ? r.json() : { ids: [] })
+      .then((d: { ids: string[] }) => {
+        if (Array.isArray(d.ids) && d.ids.length > 0) setWatchlistIds(d.ids);
+      })
       .catch(() => {});
     // Kalshi open positions (graceful: no-op when key absent)
     fetch("/api/arb/kalshi-positions")
@@ -2565,7 +2582,7 @@ export default function ArbPage() {
               </button>
               {watchlistIds.length > 0 && (
                 <button
-                  onClick={() => { setWatchlistIds([]); setShowWatchlist(false); }}
+                  onClick={() => { setWatchlistIds([]); setShowWatchlist(false); syncWatchlist([]); }}
                   title="Clear watchlist"
                   className="h-7 w-7 rounded-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center transition-colors">
                   <X className="size-3"/>
