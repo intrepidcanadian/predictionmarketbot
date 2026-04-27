@@ -1599,3 +1599,37 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A41** — Candidates: scan-log CSV export; per-category spread heatmap; Polymarket position integration in arb drawer
+
+---
+
+## 2026-04-27T12:00:00Z — milestone A43: Polymarket position in ArbDetail
+
+### What I did
+- Added `PolyPosition` interface to `app/arb/page.tsx`: `{ conditionId, title, outcome, size, avgPrice, currentPrice, cashPnl, currentValue, closed }`
+- Added `polyPosMap: Map<string, PolyPosition[]> | null` and `polyWalletSet: boolean` state to `ArbPage`
+- In the mount `useEffect`: reads `"polymarket_wallet_address"` from localStorage (same key used by `/positions` page); if set, fetches `/api/positions?user=<wallet>` and indexes results by `conditionId` (one market can have multiple outcome positions); if not set, keeps `polyPosMap = new Map()` and `polyWalletSet = false`
+- Added `polyPosMap` and `polyWalletSet` props to `ArbDetail` signature and call site
+- Added "Polymarket Position" panel in `ArbDetail` immediately before the "Create Rule" button (symmetric placement to existing Kalshi Position panel):
+  - When `polyWalletSet = true`: shows the panel; if `polyPosMap === null` → loading skeleton; if no open positions → "No open position on this market."; if positions found → 4-column grid per position (Outcome / Size / Avg Price / Cash P&L with emerald/rose coloring)
+  - When `polyWalletSet = false`: shows a prompt with link to `/positions` to configure a wallet address
+
+### Tradeoffs / shortcuts
+- Positions fetched once on mount (same pattern as Kalshi positions); stale if user makes trades mid-session — acceptable for a localhost tool
+- `conditionId` matching reuses the existing `opp.condition_id` field already in `ScanOpp` — no new API field needed
+- Multiple outcome positions for the same market (YES + NO) are both shown as separate rows in `open.map()` — edge case for hedged positions
+- The wallet key `"polymarket_wallet_address"` is shared with `/positions` page (defined as `STORAGE_KEY` there) — no new localStorage key introduced
+- Pre-existing Kalshi category pill hydration warnings unchanged (not caused by A43)
+
+### Verified by
+- `node_modules/.bin/tsc --noEmit` — exit 0
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: `/arb` loaded; ran scan → 25 results; clicked first table row → drawer opened; scrolled to "POLYMARKET POSITION" panel → rendered "No open position on this market." (test wallet `0x000...0001` has no real positions); panel correctly shows wallet-linked state
+- Screenshot confirmed: panel appears between key-term diff section and "Create Rule" button
+
+### Follow-ups for future runs
+- Scan-log CSV export (repeatedly deferred)
+- Per-category spread heatmap: aggregate avg/max edge by Kalshi category across all current opps
+- Refresh positions after each scan (so new fills appear without page reload)
+
+### Next milestone to pick up
+**A44** — Candidates: scan-log CSV export; per-category spread heatmap; refresh Poly positions after scan
