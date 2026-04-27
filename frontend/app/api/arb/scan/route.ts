@@ -316,7 +316,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const body   = await req.json().catch(() => ({})) as { force?: boolean };
   const force  = body.force === true;
-  const source = req.headers.get("x-scan-source") ?? "manual";
+  const source = force ? "forced" : (req.headers.get("x-scan-source") ?? "manual");
   const t0     = Date.now();
 
   // Check cache

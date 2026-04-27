@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, ChevronDown, Bell, History, Link2, Check, Star, X, ExternalLink, Download, Loader2, Sparkles, ClipboardList, Terminal } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, ChevronDown, Bell, History, Link2, Check, Star, X, ExternalLink, Download, Loader2, Sparkles, ClipboardList, Terminal, RefreshCw } from "lucide-react";
 
 // ── localStorage preference hook ───────────────────────────────────────────
 
@@ -1936,12 +1936,12 @@ export default function ArbPage() {
 
   // Scan log
   const [scanLog,     setScanLog]     = useState<ScanLogEntry[]>([]);
-  const [showScanLog, setShowScanLog] = useState(false);
+  const [showScanLog, setShowScanLog] = usePref<boolean>("arb:show-scan-log", false);
 
   // Alert history log
   const [alertLog,      setAlertLog]      = useState<AlertLogEntry[]>([]);
   const [newAlertCount, setNewAlertCount] = useState(0);
-  const [showAlertLog,  setShowAlertLog]  = useState(false);
+  const [showAlertLog,  setShowAlertLog]  = usePref<boolean>("arb:show-alert-log", false);
 
   // Last-scanned timestamp (set by runScan or loaded from snapshot on mount)
   const [lastScannedAt, setLastScannedAt] = useState<string | null>(null);
@@ -2391,10 +2391,23 @@ export default function ArbPage() {
               );
             })()}
             <div className="flex flex-col items-end gap-0.5">
-              <Button onClick={() => runScan(false)} disabled={scanning} size="sm" className="gap-1.5">
-                <Zap className="size-3.5"/>
-                {scanning ? "Scanning…" : "Run Scan"}
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  onClick={() => runScan(true)}
+                  disabled={scanning}
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 text-xs h-8 px-2.5"
+                  title="Force refresh — bypass 5-min snapshot cache"
+                >
+                  <RefreshCw className="size-3"/>
+                  Force
+                </Button>
+                <Button onClick={() => runScan(false)} disabled={scanning} size="sm" className="gap-1.5">
+                  <Zap className="size-3.5"/>
+                  {scanning ? "Scanning…" : "Run Scan"}
+                </Button>
+              </div>
               {lastScannedLabel && !scanning && (
                 <span className="text-[10px] text-muted-foreground font-mono">scanned {lastScannedLabel}</span>
               )}
@@ -2639,6 +2652,25 @@ export default function ArbPage() {
             </div>
           </div>
         )}
+
+        {/* Watchlist stats strip */}
+        {!scanning && showWatchlist && watchlistIds.length > 0 && opps.length > 0 && (() => {
+          const watched = opps.filter(o => watchlistIds.includes(o.id));
+          if (watched.length === 0) return null;
+          const best = watched.reduce((a, b) => b.netEdgePct > a.netEdgePct ? b : a);
+          const avgEdgePct = watched.reduce((s, o) => s + o.netEdgePct, 0) / watched.length;
+          return (
+            <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-2.5 flex items-center gap-4 flex-wrap text-xs">
+              <Star className="size-3.5 fill-amber-400 text-amber-400 shrink-0"/>
+              <span className="text-muted-foreground">{watched.length} starred</span>
+              <span className="text-muted-foreground">·</span>
+              <span>Best: <span className={`font-mono font-medium ${best.netEdgePct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{best.netEdgePct >= 0 ? "+" : ""}{best.netEdgePct.toFixed(1)}%</span></span>
+              <span className="truncate max-w-xs text-muted-foreground" title={best.question}>{best.question.length > 60 ? best.question.slice(0, 60) + "…" : best.question}</span>
+              <span className="text-muted-foreground">·</span>
+              <span>Avg edge: <span className="font-mono font-medium">{avgEdgePct >= 0 ? "+" : ""}{avgEdgePct.toFixed(1)}%</span></span>
+            </div>
+          );
+        })()}
 
         {/* Views */}
         {!scanning && filtered.length === 0 && opps.length > 0 && (
