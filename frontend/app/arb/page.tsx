@@ -579,6 +579,78 @@ function ScatterPlot({ opps, aiScoreCache, aiScoreVersion, onSelect }: {
   );
 }
 
+// ── Category heatmap ───────────────────────────────────────────────────────
+
+function CategoryHeatmap({ opps, activeCat, onSelect }: {
+  opps: ScanOpp[];
+  activeCat: string;
+  onSelect: (cat: string) => void;
+}) {
+  const stats = useMemo(() => {
+    const m = new Map<string, { count: number; totalEdge: number; maxEdge: number }>();
+    for (const o of opps) {
+      const s = m.get(o.category) ?? { count: 0, totalEdge: 0, maxEdge: -Infinity };
+      s.count++;
+      s.totalEdge += o.netEdgePct;
+      if (o.netEdgePct > s.maxEdge) s.maxEdge = o.netEdgePct;
+      m.set(o.category, s);
+    }
+    return [...m.entries()]
+      .map(([cat, s]) => ({ cat, count: s.count, avg: s.totalEdge / s.count, max: s.maxEdge }))
+      .sort((a, b) => b.avg - a.avg);
+  }, [opps]);
+
+  if (stats.length === 0) return null;
+  const maxAbsAvg = Math.max(...stats.map(s => Math.abs(s.avg)), 0.1);
+
+  return (
+    <div className="mb-4">
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2 font-medium">
+        Category breakdown — click to filter
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        {stats.map(({ cat, count, avg, max }) => {
+          const isActive = activeCat === cat;
+          const barPct = Math.max(4, Math.round(Math.abs(avg) / maxAbsAvg * 100));
+          const barColor = avg >= 5 ? "bg-emerald-500" : avg >= 0 ? "bg-emerald-400/60" : "bg-rose-500";
+          return (
+            <button
+              key={cat}
+              onClick={() => onSelect(isActive ? "all" : cat)}
+              title={`${cat}: ${count} pair${count !== 1 ? "s" : ""} · avg ${avg >= 0 ? "+" : ""}${avg.toFixed(1)}% · max ${max >= 0 ? "+" : ""}${max.toFixed(1)}%. Click to filter.`}
+              className={`flex flex-col gap-1 rounded-lg border px-3 py-2 text-left transition-colors w-[108px] shrink-0 ${
+                isActive
+                  ? "border-foreground bg-foreground/5 ring-1 ring-foreground/20"
+                  : "border-border bg-card hover:border-foreground/40"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-medium truncate">{cat}</span>
+                <span className="text-[9px] font-mono text-muted-foreground tabular-nums">{count}</span>
+              </div>
+              <div className="w-full h-[3px] rounded-full bg-muted overflow-hidden">
+                <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${barPct}%` }} />
+              </div>
+              <div className={`text-[10px] font-mono font-semibold tabular-nums ${
+                avg >= 5 ? "text-emerald-600 dark:text-emerald-400"
+                : avg >= 0 ? "text-foreground/70"
+                : "text-rose-500 dark:text-rose-400"
+              }`}>
+                {avg >= 0 ? "+" : ""}{avg.toFixed(1)}%
+              </div>
+              {max > avg + 2 && (
+                <div className="text-[9px] font-mono text-muted-foreground tabular-nums">
+                  max +{max.toFixed(1)}%
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Table view ─────────────────────────────────────────────────────────────
 
 function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, onStar, aiScoreCache, aiScoreVersion, realHistRef, histVersion, prevEdgeRef }: {
@@ -2734,6 +2806,11 @@ export default function ArbPage() {
             <StatCard label="Total addressable"   value={fmtUsd(totalCap)} sub="capped by book depth"/>
             <StatCard label="Realisable profit"   value={fmtUsd(totalEdge)} sub="if every leg fills" accent="text-emerald-600"/>
           </div>
+        )}
+
+        {/* Category heatmap */}
+        {opps.length > 0 && !scanning && (
+          <CategoryHeatmap opps={opps} activeCat={cat} onSelect={setCat}/>
         )}
 
         {/* Empty / loading */}

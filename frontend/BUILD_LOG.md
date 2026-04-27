@@ -1633,3 +1633,37 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A44** — Candidates: scan-log CSV export; per-category spread heatmap; refresh Poly positions after scan
+
+---
+
+## 2026-04-27T13:00:00Z — milestone A44: Per-category spread heatmap
+
+### What I did
+- Added `CategoryHeatmap` function component (before `TableView`) in `app/arb/page.tsx`:
+  - `useMemo` groups `opps` by `opp.category` (Macro/Politics/Other/…), computes count, avg net edge, and max net edge per category; sorts descending by avg edge
+  - Renders a `flex flex-wrap` row of compact `w-[108px]` cards below the KPI grid
+  - Each card: category name + count badge, a 3px proportional bar (emerald for positive, rose for negative, width scaled to max abs avg across all categories), avg edge value in color-coded monospace, optional "max +X%" sub-line when max ≫ avg (+2% threshold)
+  - Clicking a card calls `onSelect(cat)` to set the category filter; clicking an already-active card resets to "all"; active card shown with `ring-1 ring-foreground/20` border highlight
+  - Component takes the full unfiltered `opps` array so the breakdown is stable regardless of other active filters
+- Wired into the render between the KPI grid and the "Empty / loading" block: `{opps.length > 0 && !scanning && <CategoryHeatmap opps={opps} activeCat={cat} onSelect={setCat}/>}`
+- Added A44 to ROADMAP.md
+
+### Tradeoffs / shortcuts
+- Heatmap uses `opps` (unfiltered), not `filtered` — so bar heights and counts don't shift as you apply minEdge/match/liq filters; this gives a stable "full picture" view which is more useful for category-level signal
+- Categories are the post-`CATEGORY_MAP` values ("Macro", "Politics", "Other", etc.), same as what the filter-row pills use, so clicking a heatmap card and clicking the filter-row pill are equivalent
+- No new state, no new API routes, no new localStorage keys — purely computed from existing state
+
+### Verified by
+- `node_modules/.bin/tsc --noEmit` — exit 0, 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: heatmap renders 3 cards (Macro 5, Other 11, Politics 9) with green bars and avg/max labels
+- Click "Macro" card → results filter to 5 of 25, Macro card shows ring highlight, filter-row "Macro" pill activates, KPIs update to 39.78% avg / $500 addressable / $199 profit
+- No new console errors (pre-existing Kalshi category pill hydration warnings unchanged)
+
+### Follow-ups for future runs
+- Scan-log CSV export (deferred 4 times — good candidate for next run)
+- Refresh Poly positions after each scan
+- Could add a count-of-high-match pairs per category as a sub-label on each heatmap card
+
+### Next milestone to pick up
+**A45** — Candidates: scan-log CSV export; refresh Poly positions after scan; count-of-H-match pairs per heatmap card
