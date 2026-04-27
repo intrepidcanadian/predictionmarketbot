@@ -197,6 +197,21 @@ function computeMatchQuality(kwScore: number, polyCloses?: string, kalshiCloses?
   return { keyword: kwScore, dateProx: dp, combined, grade, polyCloses };
 }
 
+function dateGapDays(a?: string, b?: string): number | null {
+  if (!a || !b) return null;
+  const da = new Date(a).getTime(), db = new Date(b).getTime();
+  if (isNaN(da) || isNaN(db)) return null;
+  return Math.abs(da - db) / 86_400_000;
+}
+
+function fmtDateGap(days: number | null): string {
+  if (days === null) return "?";
+  if (days < 1) return "<1d";
+  if (days < 60) return `${Math.round(days)}d`;
+  if (days < 365) return `${(days / 30).toFixed(0)}mo`;
+  return `${(days / 365).toFixed(1)}y`;
+}
+
 function syntheticHistory(seed: number): number[] {
   const pts: number[] = [];
   let v = seed;
@@ -648,7 +663,19 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
                         })()}
                       </div>
                     </td>
-                    <td className="px-3 py-2.5"><MatchBadge grade={opp.matchQuality.grade}/></td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex flex-col items-start gap-0.5">
+                        <MatchBadge grade={opp.matchQuality.grade}/>
+                        {(() => {
+                          const gap = dateGapDays(opp.matchQuality.polyCloses, opp.closes);
+                          if (gap === null) return null;
+                          const color = gap > 365 ? "text-rose-500 dark:text-rose-400"
+                                      : gap > 90  ? "text-amber-500 dark:text-amber-400"
+                                      : "text-muted-foreground";
+                          return <span className={`text-[9px] font-mono leading-none ${color}`}>{fmtDateGap(gap)} gap</span>;
+                        })()}
+                      </div>
+                    </td>
                     {hasAiScores && (
                       <td className="px-3 py-2.5">
                         {(() => {
@@ -1479,7 +1506,12 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { label: "Keyword overlap", val: opp.matchQuality.keyword, hint: `${(opp.matchQuality.keyword * 100).toFixed(0)}%` },
-                    { label: "Date proximity",  val: opp.matchQuality.dateProx, hint: opp.matchQuality.dateProx === 0 ? (opp.matchQuality.polyCloses ? "far apart" : "no poly date") : `${(opp.matchQuality.dateProx * 100).toFixed(0)}%` },
+                    { label: "Date proximity",  val: opp.matchQuality.dateProx, hint: (() => {
+                      const gap = dateGapDays(opp.matchQuality.polyCloses, opp.closes);
+                      if (gap === null) return "no poly date";
+                      const gapLabel = fmtDateGap(gap);
+                      return opp.matchQuality.dateProx === 0 ? `${gapLabel} apart` : `${(opp.matchQuality.dateProx * 100).toFixed(0)}% (${gapLabel})`;
+                    })() },
                     { label: "Combined score",  val: opp.matchQuality.combined, hint: `${(opp.matchQuality.combined * 100).toFixed(0)}%` },
                   ].map(({ label, val, hint }) => (
                     <div key={label} className="rounded-md bg-background/60 border border-border/60 p-2">
@@ -1852,6 +1884,7 @@ export default function ArbPage() {
   const [selected,   setSelected]   = useState<ScanOpp | null>(null);
   const [minMatch,      setMinMatch]      = usePref<"all" | "M" | "H">("arb:min-match", "all");
   const [minLiquidity,  setMinLiquidity]  = usePref<number>("arb:min-liq", 0);
+  const [maxDateGap,    setMaxDateGap]    = usePref<number>("arb:max-date-gap", 0);
   const [flashIds,   setFlashIds]   = useState<Set<string>>(new Set());
   const [kalshiCatsArr, setKalshiCatsArr] = usePref<string[]>("arb:kalshi-cats", [...KALSHI_CATS]);
   const kalshiCats = useMemo(() => new Set(kalshiCatsArr), [kalshiCatsArr]);
@@ -2030,6 +2063,8 @@ export default function ArbPage() {
       if (urlCat) setCat(urlCat);
       const urlView = sp.get("view");
       if (urlView === "table" || urlView === "cards" || urlView === "ticker") setView(urlView as ViewMode);
+      const urlMaxDateGap = sp.get("max_date_gap");
+      if (urlMaxDateGap !== null) setMaxDateGap(+urlMaxDateGap);
       // Trigger a scan so the pending pair can be auto-selected once results arrive
       setTimeout(() => autoRunRef.current(), 100);
     }
@@ -2050,15 +2085,16 @@ export default function ArbPage() {
     setSelected(opp);
     if (opp) {
       const params = new URLSearchParams({ pair: opp.id });
-      if (minEdge > 0)        params.set("min_edge",   minEdge.toString());
-      if (minMatch !== "all") params.set("min_match",  minMatch);
-      if (cat !== "all")      params.set("cat",        cat);
-      if (view !== "table")   params.set("view",       view);
+      if (minEdge > 0)        params.set("min_edge",      minEdge.toString());
+      if (minMatch !== "all") params.set("min_match",     minMatch);
+      if (cat !== "all")      params.set("cat",           cat);
+      if (view !== "table")   params.set("view",          view);
+      if (maxDateGap > 0)     params.set("max_date_gap",  maxDateGap.toString());
       window.history.replaceState(null, "", `/arb?${params}`);
     } else {
       window.history.replaceState(null, "", "/arb");
     }
-  }, [minEdge, minMatch, cat, view]);
+  }, [minEdge, minMatch, cat, view, maxDateGap]);
 
   // Keep notifyRef in sync
   useEffect(() => {
@@ -2198,13 +2234,18 @@ export default function ArbPage() {
   const categories = ["all", ...Array.from(new Set(opps.map(o => o.category)))];
 
   const filtered = useMemo(() =>
-    (showWatchlist ? opps.filter(o => watchlistIds.includes(o.id)) : opps).filter(o =>
-      o.netEdgePct >= minEdge &&
-      (cat === "all" || o.category === cat) &&
-      (minMatch === "all" || (minMatch === "M" ? o.matchQuality.grade !== "L" : o.matchQuality.grade === "H")) &&
-      (minLiquidity === 0 || Math.min(o.poly.liquidity, o.kalshi.liquidity) >= minLiquidity) &&
-      (!search || o.question.toLowerCase().includes(search.toLowerCase()))
-    ), [opps, minEdge, cat, minMatch, minLiquidity, search, showWatchlist, watchlistIds]);
+    (showWatchlist ? opps.filter(o => watchlistIds.includes(o.id)) : opps).filter(o => {
+      if (o.netEdgePct < minEdge) return false;
+      if (cat !== "all" && o.category !== cat) return false;
+      if (minMatch !== "all" && (minMatch === "M" ? o.matchQuality.grade === "L" : o.matchQuality.grade !== "H")) return false;
+      if (minLiquidity > 0 && Math.min(o.poly.liquidity, o.kalshi.liquidity) < minLiquidity) return false;
+      if (maxDateGap > 0) {
+        const gap = dateGapDays(o.matchQuality.polyCloses, o.closes);
+        if (gap !== null && gap > maxDateGap) return false;
+      }
+      if (search && !o.question.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    }), [opps, minEdge, cat, minMatch, minLiquidity, maxDateGap, search, showWatchlist, watchlistIds]);
 
   const totalEdge = filtered.reduce((s, o) => s + o.capitalCap * o.netEdgePct / 100, 0);
   const avgEdge   = filtered.length ? filtered.reduce((s, o) => s + o.netEdgePct, 0) / filtered.length : 0;
@@ -2667,6 +2708,16 @@ export default function ArbPage() {
                 <button key={v} onClick={() => setMinLiquidity(v)}
                         className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${minLiquidity === v ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}>
                   {v === 0 ? "Any" : v >= 1000 ? `$${v / 1000}K` : `$${v}`}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground font-medium mr-0.5">Dates:</span>
+              {([0, 30, 90, 180, 365] as const).map(v => (
+                <button key={v} onClick={() => setMaxDateGap(v)}
+                        className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${maxDateGap === v ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}
+                        title={v === 0 ? "Show all pairs regardless of close date mismatch" : `Hide pairs whose Poly and Kalshi close dates differ by more than ${v} days`}>
+                  {v === 0 ? "Any" : `≤${v}d`}
                 </button>
               ))}
             </div>
