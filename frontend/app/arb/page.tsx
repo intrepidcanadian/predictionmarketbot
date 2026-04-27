@@ -88,6 +88,18 @@ interface KalshiPosition {
   resting_order_count: number;
 }
 
+interface PolyPosition {
+  conditionId: string;
+  title: string;
+  outcome: string;
+  size: number;
+  avgPrice: number;
+  currentPrice: number;
+  cashPnl: number;
+  currentValue: number;
+  closed: boolean;
+}
+
 interface PolyMarket {
   id: string; condition_id: string; question: string; slug: string; token_id: string;
   yes_price: number; no_price: number; volume: number; liquidity: number; active: boolean;
@@ -1019,7 +1031,7 @@ interface AiMatch {
   usedResolution?: boolean;
 }
 
-function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreReady, pairThresholds, onSetPairThreshold, kalshiPosMap, kalshiPosError }: {
+function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreReady, pairThresholds, onSetPairThreshold, kalshiPosMap, kalshiPosError, polyPosMap, polyWalletSet }: {
   opp: ScanOpp; onClose: () => void; isWatched: boolean; onStar: () => void;
   aiScoreCache: React.MutableRefObject<Map<string, AiMatch>>;
   onAiScoreReady?: () => void;
@@ -1027,6 +1039,8 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
   onSetPairThreshold: (id: string, thresh: number | null) => void;
   kalshiPosMap: Map<string, KalshiPosition> | null;
   kalshiPosError: string | null;
+  polyPosMap: Map<string, PolyPosition[]> | null;
+  polyWalletSet: boolean;
 }) {
   const router = useRouter();
   const [capital,      setCapital]     = useState(1000);
@@ -1712,6 +1726,45 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
             </div>
           )}
 
+          {/* Polymarket Position */}
+          {polyWalletSet && (
+            <div className="rounded-xl border bg-card p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Polymarket Position</h3>
+              {polyPosMap === null ? (
+                <div className="h-6 w-40 rounded bg-muted animate-pulse"/>
+              ) : (() => {
+                const positions = polyPosMap.get(opp.condition_id) ?? [];
+                const open = positions.filter(p => !p.closed);
+                if (open.length === 0) return <p className="text-[11px] text-muted-foreground">No open position on this market.</p>;
+                return (
+                  <div className="space-y-2">
+                    {open.map((pos, i) => (
+                      <div key={i} className="grid grid-cols-4 gap-3 text-xs">
+                        {[
+                          { label: "Outcome",   val: pos.outcome,                                      cls: "" },
+                          { label: "Size",      val: pos.size.toFixed(0) + " shares",                  cls: "" },
+                          { label: "Avg Price", val: fmtC(pos.avgPrice),                               cls: "" },
+                          { label: "Cash P&L",  val: fmtUsd(pos.cashPnl), cls: pos.cashPnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400" },
+                        ].map(({ label, val, cls }) => (
+                          <div key={label}>
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</div>
+                            <div className={`font-mono font-semibold mt-0.5 ${cls}`}>{val}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+          {!polyWalletSet && (
+            <div className="rounded-xl border bg-card p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Polymarket Position</h3>
+              <p className="text-[11px] text-muted-foreground">Set your wallet address in <a href="/positions" className="underline hover:text-foreground">Positions</a> to track open Polymarket positions here.</p>
+            </div>
+          )}
+
           {/* Create Rule from Arb */}
           {opp.netEdgePct > 0 && (
             <button
@@ -1958,6 +2011,10 @@ export default function ArbPage() {
   const [kalshiPosMap,   setKalshiPosMap]   = useState<Map<string, KalshiPosition> | null>(null);
   const [kalshiPosError, setKalshiPosError] = useState<string | null>(null);
 
+  // Polymarket open positions — indexed by conditionId, fetched once on mount when wallet is saved
+  const [polyPosMap,   setPolyPosMap]   = useState<Map<string, PolyPosition[]> | null>(null);
+  const [polyWalletSet, setPolyWalletSet] = useState(false);
+
   // Per-pair alert thresholds (starred pairs can override global notify threshold)
   const [pairThresholds, setPairThresholds] = usePref<Record<string, number>>("arb:pair-thresholds", {});
   const setPairThreshold = useCallback((id: string, thresh: number | null) => {
@@ -2079,6 +2136,25 @@ export default function ArbPage() {
         setKalshiPosMap(m);
       })
       .catch(() => setKalshiPosError("Network error"));
+    // Polymarket positions — read wallet saved by /positions page (graceful: no-op when absent)
+    const polyWallet = localStorage.getItem("polymarket_wallet_address") ?? "";
+    if (polyWallet) {
+      setPolyWalletSet(true);
+      fetch(`/api/positions?user=${encodeURIComponent(polyWallet)}`)
+        .then(r => r.ok ? r.json() : [])
+        .then((data: PolyPosition[]) => {
+          const m = new Map<string, PolyPosition[]>();
+          for (const pos of (Array.isArray(data) ? data : [])) {
+            if (!m.has(pos.conditionId)) m.set(pos.conditionId, []);
+            m.get(pos.conditionId)!.push(pos);
+          }
+          setPolyPosMap(m);
+        })
+        .catch(() => setPolyPosMap(new Map()));
+    } else {
+      setPolyWalletSet(false);
+      setPolyPosMap(new Map());
+    }
     const sp = new URLSearchParams(window.location.search);
     const pairParam = sp.get("pair");
     if (pairParam) {
@@ -2794,7 +2870,7 @@ export default function ArbPage() {
         )}
       </div>
 
-      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)} aiScoreCache={aiScoreCacheRef} onAiScoreReady={onAiScoreReady} pairThresholds={pairThresholds} onSetPairThreshold={setPairThreshold} kalshiPosMap={kalshiPosMap} kalshiPosError={kalshiPosError}/>}
+      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)} aiScoreCache={aiScoreCacheRef} onAiScoreReady={onAiScoreReady} pairThresholds={pairThresholds} onSetPairThreshold={setPairThreshold} kalshiPosMap={kalshiPosMap} kalshiPosError={kalshiPosError} polyPosMap={polyPosMap} polyWalletSet={polyWalletSet}/>}
     </div>
   );
 }
