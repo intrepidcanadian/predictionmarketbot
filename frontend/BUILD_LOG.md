@@ -4,6 +4,40 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ---
 
+## 2026-04-27T16:20:00Z — milestone A45: Pair notes
+
+### What I did
+- Created `frontend/app/api/arb/notes/route.ts` — `GET` returns `frontend/arb-notes.json` as `{ [pair_id]: string }`; `POST { pair_id, note }` upserts or deletes (empty note) and writes the file
+- Added `notesMap: Record<string, string>` state + `saveNote` callback to `ArbPage`; loaded from API on mount
+- `ArbDetail` gains two new props (`notesMap`, `onSaveNote`) plus local `showNoteEditor`/`noteText` states; `useEffect` on `opp.id` resets the editor when switching pairs
+- Drawer header: "Add note" button (PenLine icon) when no note exists; saved note shown as a 2-line truncated preview with an "Edit" link; clicking Edit re-opens the textarea; Save (⌘/Ctrl+Enter or button), Cancel, and Delete note buttons
+- `TableView` gains `notesMap` prop; the expand-icon column renders a small violet `PenLine` icon alongside the chevron for rows that have a note
+- Inline quick-peek panel (A36 row expand) shows the note text at the bottom with a violet pencil icon when a note exists for that pair
+
+### Tradeoffs / shortcuts
+- Notes are keyed by `opp.id` (e.g. `540881-KXLAYOFFSYINFO-26-494000`). If a pair's Kalshi ticker or Polymarket slug changes (re-scan), the id is stable because it is constructed from both sides and memoised — no stale-note risk in practice
+- No cap on notes file size (notes are intentional annotations, not high-volume append); could add a 1000-entry prune in a future run if needed
+- The `useEffect` for noteText only depends on `opp.id`, not `notesMap` — prevents the editor from being clobbered mid-edit when a background scan updates the parent's notesMap
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors (exit code 0)
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: opened drawer → "Add note" visible; textarea opens on click; typed note, clicked Save → note preview with "Edit" appears in drawer header
+- Note persisted to `frontend/arb-notes.json` (confirmed via `cat`)
+- Closed drawer → violet PenLine indicator visible in first table row's expand column
+- Opened quick-peek (⌄ expand) on first row → note text displayed at bottom of panel with pencil icon
+- No new errors introduced (existing hydration mismatches are pre-A42 noise on Kalshi category pills)
+
+### Follow-ups for future runs
+- Could pass `notesMap` to `CardView` and `TickerView` to show indicators there too (currently only TableView)
+- Could add a "Notes" filter pill to show only pairs with notes (useful for starred + annotated review workflow)
+- Could show note count badge in the watchlist stats strip
+
+### Next milestone to pick up
+**A46** — (to be defined) — suggestions: note indicator in CardView/TickerView; "Notes" filter toggle; per-pair Kalshi order depth chart; or a new feature direction
+
+---
+
 ## 2026-04-27T06:00:00Z — milestone A42: Hydration fix + close-date in drawer header
 
 ### What I did

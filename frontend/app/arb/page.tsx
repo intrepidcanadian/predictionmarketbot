@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, ChevronDown, Bell, History, Link2, Check, Star, X, ExternalLink, Download, Loader2, Sparkles, ClipboardList, Terminal, RefreshCw } from "lucide-react";
+import { Zap, AlertTriangle, FileText, Search, Plus, ChevronRight, ChevronDown, Bell, History, Link2, Check, Star, X, ExternalLink, Download, Loader2, Sparkles, ClipboardList, Terminal, RefreshCw, PenLine } from "lucide-react";
 
 // ── localStorage preference hook ───────────────────────────────────────────
 
@@ -653,7 +653,7 @@ function CategoryHeatmap({ opps, activeCat, onSelect }: {
 
 // ── Table view ─────────────────────────────────────────────────────────────
 
-function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, onStar, aiScoreCache, aiScoreVersion, realHistRef, histVersion, prevEdgeRef }: {
+function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, onStar, aiScoreCache, aiScoreVersion, realHistRef, histVersion, prevEdgeRef, notesMap }: {
   opps: ScanOpp[]; onSelect: (o: ScanOpp) => void;
   sortBy: SortBy; setSortBy: (s: SortBy) => void; flashIds: Set<string>;
   watchlistIds: string[]; onStar: (id: string) => void;
@@ -662,6 +662,7 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
   realHistRef?: React.MutableRefObject<Map<string, number[]>>;
   histVersion?: number;
   prevEdgeRef?: React.MutableRefObject<Map<string, number>>;
+  notesMap?: Record<string, string>;
 }) {
   const sorted = [...opps].sort((a, b) =>
     sortBy === "edge"  ? b.netEdgePct - a.netEdgePct :
@@ -788,7 +789,10 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
                     <td className="px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground">{timeUntil(opp.closes)}</td>
                     <td className="px-3 py-2.5 text-right"><Sparkline data={realHistRef?.current?.get(opp.id) ?? opp.history} className="w-16 h-4 inline-block text-emerald-600 dark:text-emerald-400"/></td>
                     <td className="pr-3 text-muted-foreground hover:text-foreground" onClick={e => handleExpandToggle(e, opp)}>
-                      <ChevronDown className={`size-3.5 transition-transform duration-150 ${isExpanded ? "" : "-rotate-90"}`}/>
+                      <div className="flex items-center gap-1 justify-end">
+                        {notesMap?.[opp.id] && <PenLine className="size-3 text-violet-500/60 shrink-0"/>}
+                        <ChevronDown className={`size-3.5 transition-transform duration-150 ${isExpanded ? "" : "-rotate-90"}`}/>
+                      </div>
                     </td>
                   </tr>
                   {isExpanded && (
@@ -858,6 +862,12 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
                             </div>
                           );
                         })()}
+                        {notesMap?.[opp.id] && (
+                          <div className="mt-3 border-t border-border/40 pt-3 flex items-start gap-1.5 text-[10px] text-muted-foreground">
+                            <PenLine className="size-3 shrink-0 mt-0.5 text-violet-500/70"/>
+                            <span className="leading-relaxed">{notesMap[opp.id]}</span>
+                          </div>
+                        )}
                         <div className="mt-3 flex items-center justify-between">
                           <p className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
                             <AlertTriangle className="size-3 shrink-0"/> Verify resolution criteria match before trading
@@ -1103,7 +1113,7 @@ interface AiMatch {
   usedResolution?: boolean;
 }
 
-function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreReady, pairThresholds, onSetPairThreshold, kalshiPosMap, kalshiPosError, polyPosMap, polyWalletSet }: {
+function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreReady, pairThresholds, onSetPairThreshold, kalshiPosMap, kalshiPosError, polyPosMap, polyWalletSet, notesMap, onSaveNote }: {
   opp: ScanOpp; onClose: () => void; isWatched: boolean; onStar: () => void;
   aiScoreCache: React.MutableRefObject<Map<string, AiMatch>>;
   onAiScoreReady?: () => void;
@@ -1113,6 +1123,8 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
   kalshiPosError: string | null;
   polyPosMap: Map<string, PolyPosition[]> | null;
   polyWalletSet: boolean;
+  notesMap: Record<string, string>;
+  onSaveNote: (id: string, text: string) => void;
 }) {
   const router = useRouter();
   const [capital,      setCapital]     = useState(1000);
@@ -1128,6 +1140,14 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
   const [aiMatchError, setAiMatchError] = useState<string | null>(null);
   const [resolution,   setResolution]  = useState<ResolutionData | null>(null);
   const [resLoading,   setResLoading]  = useState(false);
+  const [showNoteEditor, setShowNoteEditor] = useState(false);
+  const [noteText,     setNoteText]    = useState("");
+
+  // Sync note text and reset editor when the selected pair changes
+  useEffect(() => {
+    setNoteText(notesMap[opp.id] ?? "");
+    setShowNoteEditor(false);
+  }, [opp.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setHistory([]);
@@ -1345,6 +1365,64 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
                 )}
               </div>
             )}
+            {/* Note editor */}
+            <div className="mt-2">
+              {!showNoteEditor && notesMap[opp.id] && (
+                <div className="flex items-start gap-1.5 text-[10px] text-muted-foreground">
+                  <PenLine className="size-3 shrink-0 mt-0.5 text-violet-500/70"/>
+                  <span className="leading-relaxed line-clamp-2 flex-1">{notesMap[opp.id]}</span>
+                  <button onClick={() => { setNoteText(notesMap[opp.id] ?? ""); setShowNoteEditor(true); }}
+                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors ml-1">Edit</button>
+                </div>
+              )}
+              {!showNoteEditor && !notesMap[opp.id] && (
+                <button onClick={() => setShowNoteEditor(true)}
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                  <PenLine className="size-3"/>Add note
+                </button>
+              )}
+              {showNoteEditor && (
+                <div>
+                  <textarea
+                    autoFocus
+                    value={noteText}
+                    onChange={e => setNoteText(e.target.value)}
+                    placeholder="Add a note (e.g. 'Verified same resolution', 'False positive')…"
+                    className="w-full rounded border border-border bg-muted/50 px-2 py-1.5 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                    rows={2}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        onSaveNote(opp.id, noteText);
+                        setShowNoteEditor(false);
+                      }
+                      if (e.key === "Escape") {
+                        setNoteText(notesMap[opp.id] ?? "");
+                        setShowNoteEditor(false);
+                      }
+                    }}
+                  />
+                  <div className="flex gap-1.5 mt-1">
+                    <button
+                      onClick={() => { onSaveNote(opp.id, noteText); setShowNoteEditor(false); }}
+                      className="h-5 px-2 rounded text-[10px] bg-foreground text-background font-medium hover:opacity-90">
+                      Save
+                    </button>
+                    <button
+                      onClick={() => { setNoteText(notesMap[opp.id] ?? ""); setShowNoteEditor(false); }}
+                      className="h-5 px-2 rounded text-[10px] text-muted-foreground hover:text-foreground border border-border">
+                      Cancel
+                    </button>
+                    {notesMap[opp.id] && (
+                      <button
+                        onClick={() => { onSaveNote(opp.id, ""); setShowNoteEditor(false); }}
+                        className="h-5 px-2 rounded text-[10px] text-rose-600 dark:text-rose-400 hover:opacity-80 border border-border ml-auto">
+                        Delete note
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           <button
             onClick={onStar}
@@ -2087,6 +2165,21 @@ export default function ArbPage() {
   const [polyPosMap,   setPolyPosMap]   = useState<Map<string, PolyPosition[]> | null>(null);
   const [polyWalletSet, setPolyWalletSet] = useState(false);
 
+  // Pair notes
+  const [notesMap, setNotesMap] = useState<Record<string, string>>({});
+  const saveNote = useCallback((oppId: string, text: string) => {
+    setNotesMap(prev => {
+      const next = { ...prev };
+      if (text.trim()) next[oppId] = text.trim(); else delete next[oppId];
+      return next;
+    });
+    fetch("/api/arb/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pair_id: oppId, note: text }),
+    }).catch(() => {});
+  }, []);
+
   // Per-pair alert thresholds (starred pairs can override global notify threshold)
   const [pairThresholds, setPairThresholds] = usePref<Record<string, number>>("arb:pair-thresholds", {});
   const setPairThreshold = useCallback((id: string, thresh: number | null) => {
@@ -2197,6 +2290,10 @@ export default function ArbPage() {
       .then((d: { ids: string[] }) => {
         if (Array.isArray(d.ids) && d.ids.length > 0) setWatchlistIds(d.ids);
       })
+      .catch(() => {});
+    fetch("/api/arb/notes")
+      .then(r => r.ok ? r.json() : {})
+      .then((d: Record<string, string>) => setNotesMap(d))
       .catch(() => {});
     // Kalshi open positions (graceful: no-op when key absent)
     fetch("/api/arb/kalshi-positions")
@@ -2936,7 +3033,7 @@ export default function ArbPage() {
         )}
         {!scanning && filtered.length > 0 && (
           <>
-            {view === "table"   && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion} realHistRef={realHistRef} histVersion={histVersion} prevEdgeRef={prevEdgeRef}/>}
+            {view === "table"   && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion} realHistRef={realHistRef} histVersion={histVersion} prevEdgeRef={prevEdgeRef} notesMap={notesMap}/>}
             {view === "cards"   && <CardView  opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist} realHistRef={realHistRef}/>}
             {view === "ticker"  && <TickerView opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
             {view === "scatter" && <ScatterPlot opps={filtered} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion} onSelect={selectOpp}/>}
@@ -2947,7 +3044,7 @@ export default function ArbPage() {
         )}
       </div>
 
-      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)} aiScoreCache={aiScoreCacheRef} onAiScoreReady={onAiScoreReady} pairThresholds={pairThresholds} onSetPairThreshold={setPairThreshold} kalshiPosMap={kalshiPosMap} kalshiPosError={kalshiPosError} polyPosMap={polyPosMap} polyWalletSet={polyWalletSet}/>}
+      {selected && <ArbDetail opp={selected} onClose={() => selectOpp(null)} isWatched={watchlistIds.includes(selected.id)} onStar={() => toggleWatchlist(selected.id)} aiScoreCache={aiScoreCacheRef} onAiScoreReady={onAiScoreReady} pairThresholds={pairThresholds} onSetPairThreshold={setPairThreshold} kalshiPosMap={kalshiPosMap} kalshiPosError={kalshiPosError} polyPosMap={polyPosMap} polyWalletSet={polyWalletSet} notesMap={notesMap} onSaveNote={saveNote}/>}
     </div>
   );
 }
