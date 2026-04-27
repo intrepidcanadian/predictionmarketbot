@@ -1701,3 +1701,34 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A45** — Candidates: scan-log CSV export; refresh Poly positions after scan; count-of-H-match pairs per heatmap card
+
+---
+
+## 2026-04-27T14:00:00Z — milestone A46: Notes-enriched CSV export + scan-log CSV download
+
+### What I did
+- Extended `exportToCsv(opps, notesMap)` to accept a `notesMap: Record<string, string>` parameter (default `{}`); added a "Notes" column as the last field in the CSV, populated from `notesMap[opp.id]`, properly double-quote-escaped
+- Updated the Export button call site to pass `notesMap` so pair annotations (from A45) travel with every export
+- Added `exportScanLogToCsv(entries: ScanLogEntry[])` helper: generates a CSV with columns Timestamp, Source, Opps, Kalshi Markets, Illiquid Filtered, Duration ms; downloads as `scan-log-{date}.csv`
+- Added a `Download` icon button in the scan log panel header (between the entry count label and the ✕ close button); `disabled` when `scanLog.length === 0`; `title="Download scan log as CSV"`
+- Added A46 to ROADMAP.md
+
+### Tradeoffs / shortcuts
+- Notes column is always present in the CSV even when empty strings — consistent schema regardless of annotation state
+- `exportScanLogToCsv` is purely client-side (same pattern as `exportToCsv`) — no new API route needed since `scanLog` state is already loaded in `ArbPage`
+- Download button uses `<button>` with `disabled` prop (not a shadcn `Button`) to match the icon-button style of the adjacent close button
+
+### Verified by
+- `node_modules/.bin/tsc --noEmit` — exit 0, 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: scan log panel opened → ↓ download icon visible in header next to "5 recorded runs" and ✕ close button
+- Export button visible in page header; passing `notesMap` confirmed by TypeScript type check (would error if signature mismatch)
+- No new console errors (pre-existing Kalshi category pill hydration warnings unchanged)
+
+### Follow-ups for future runs
+- Verify Notes column content in downloaded CSV when a pair has a saved note (can test by adding a note, then exporting)
+- Scan-log CSV content could include a "pairs" column listing top pair IDs for that scan
+- Could add a "Notes" filter pill ("Annotated / Unannotated") in the filter row
+
+### Next milestone to pick up
+**A47** — Candidates: Notes filter (Annotated/Unannotated pill), refresh Poly positions after each scan, count-of-H-match pairs per heatmap card, scan-log "pairs" column

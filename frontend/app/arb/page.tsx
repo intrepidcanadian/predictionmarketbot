@@ -2080,8 +2080,8 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function exportToCsv(opps: ScanOpp[]) {
-  const header = ["Question","Kalshi Title","Edge %","Edge ¢","Match","Direction","Poly Price ¢","Kalshi Price ¢","Closes","Category"].join(",");
+function exportToCsv(opps: ScanOpp[], notesMap: Record<string, string> = {}) {
+  const header = ["Question","Kalshi Title","Edge %","Edge ¢","Match","Direction","Poly Price ¢","Kalshi Price ¢","Closes","Category","Notes"].join(",");
   const rows = opps.map(o =>
     [
       `"${o.question.replace(/"/g,'""')}"`,
@@ -2094,12 +2094,25 @@ function exportToCsv(opps: ScanOpp[]) {
       Math.round(o.kalshi.price * 100),
       `"${o.closes}"`,
       o.category,
+      `"${(notesMap[o.id] ?? "").replace(/"/g,'""')}"`,
     ].join(",")
   );
   const csv = [header, ...rows].join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   a.download = `arb-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+function exportScanLogToCsv(entries: ScanLogEntry[]) {
+  const header = ["Timestamp","Source","Opps","Kalshi Markets","Illiquid Filtered","Duration ms"].join(",");
+  const rows = entries.map(e =>
+    [e.ts, e.source, e.opps_count, e.kalshi_count, e.illiquid_filtered, e.duration_ms].join(",")
+  );
+  const csv = [header, ...rows].join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = `scan-log-${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
 }
 
@@ -2690,7 +2703,7 @@ export default function ArbPage() {
                 {autoScan ? `Auto · ${countdown >= 3600 ? `${Math.floor(countdown / 3600)}h${Math.floor((countdown % 3600) / 60) > 0 ? `${Math.floor((countdown % 3600) / 60)}m` : ""}` : countdown >= 60 ? `${Math.floor(countdown / 60)}m${countdown % 60 > 0 ? `${countdown % 60}s` : ""}` : `${countdown}s`}` : "Auto"}
               </button>
             </div>
-            <Button onClick={() => exportToCsv(filtered)} disabled={filtered.length === 0} size="sm" variant="outline" className="gap-1.5">
+            <Button onClick={() => exportToCsv(filtered, notesMap)} disabled={filtered.length === 0} size="sm" variant="outline" className="gap-1.5">
               <Download className="size-3.5"/>
               Export
             </Button>
@@ -2835,7 +2848,14 @@ export default function ArbPage() {
               <ClipboardList className="size-3.5 text-sky-500"/>
               <span className="text-xs font-semibold text-sky-700 dark:text-sky-400 uppercase tracking-wider">Scan Log</span>
               <span className="text-[10px] text-muted-foreground">{scanLog.length} recorded runs</span>
-              <button onClick={() => setShowScanLog(false)} className="ml-auto size-5 rounded hover:bg-muted/60 grid place-items-center text-muted-foreground">
+              <button
+                onClick={() => exportScanLogToCsv(scanLog)}
+                disabled={scanLog.length === 0}
+                title="Download scan log as CSV"
+                className="ml-auto size-5 rounded hover:bg-muted/60 grid place-items-center text-muted-foreground disabled:opacity-40">
+                <Download className="size-3"/>
+              </button>
+              <button onClick={() => setShowScanLog(false)} className="size-5 rounded hover:bg-muted/60 grid place-items-center text-muted-foreground">
                 <X className="size-3"/>
               </button>
             </div>
