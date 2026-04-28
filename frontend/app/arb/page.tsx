@@ -894,10 +894,11 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
 
 // ── Card view ──────────────────────────────────────────────────────────────
 
-function CardView({ opps, onSelect, watchlistIds, onStar, realHistRef }: {
+function CardView({ opps, onSelect, watchlistIds, onStar, realHistRef, notesMap }: {
   opps: ScanOpp[]; onSelect: (o: ScanOpp) => void;
   watchlistIds: string[]; onStar: (id: string) => void;
   realHistRef?: React.MutableRefObject<Map<string, number[]>>;
+  notesMap?: Record<string, string>;
 }) {
   const grouped = opps.reduce<Record<string, ScanOpp[]>>((acc, o) => {
     (acc[o.category] = acc[o.category] || []).push(o); return acc;
@@ -955,7 +956,10 @@ function CardView({ opps, onSelect, watchlistIds, onStar, realHistRef }: {
                   <div className="flex items-center justify-between text-[10px] text-muted-foreground border-t pt-2">
                     <span>Cap: <span className="font-mono text-foreground">{fmtUsd(opp.capitalCap)}</span></span>
                     <span>Closes: <span className="font-mono text-foreground">{timeUntil(opp.closes)}</span></span>
-                    <Sparkline data={realHistRef?.current?.get(opp.id) ?? opp.history} className="w-12 h-3 text-emerald-600 dark:text-emerald-400"/>
+                    <div className="flex items-center gap-1.5">
+                      {notesMap?.[opp.id] && <span title={notesMap[opp.id]}><PenLine className="size-3 text-violet-500/60 shrink-0"/></span>}
+                      <Sparkline data={realHistRef?.current?.get(opp.id) ?? opp.history} className="w-12 h-3 text-emerald-600 dark:text-emerald-400"/>
+                    </div>
                   </div>
                 </div>
               );
@@ -969,9 +973,10 @@ function CardView({ opps, onSelect, watchlistIds, onStar, realHistRef }: {
 
 // ── Ticker view ────────────────────────────────────────────────────────────
 
-function TickerView({ opps, onSelect, watchlistIds, onStar }: {
+function TickerView({ opps, onSelect, watchlistIds, onStar, notesMap }: {
   opps: ScanOpp[]; onSelect: (o: ScanOpp) => void;
   watchlistIds: string[]; onStar: (id: string) => void;
+  notesMap?: Record<string, string>;
 }) {
   const [feed, setFeed] = useState(() =>
     opps.slice(0, 8).map((o, i) => ({ ...o, ts: Date.now() - i * 24_000, _seq: i }))
@@ -1018,6 +1023,7 @@ function TickerView({ opps, onSelect, watchlistIds, onStar }: {
                 </div>
               </div>
               <CategoryBadge cat={opp.category}/>
+              {notesMap?.[opp.id] && <span title={notesMap[opp.id]}><PenLine className="size-3 text-violet-500/60 shrink-0"/></span>}
               <div
                 role="button"
                 tabIndex={0}
@@ -2130,6 +2136,7 @@ export default function ArbPage() {
   const [minMatch,      setMinMatch]      = usePref<"all" | "M" | "H">("arb:min-match", "all");
   const [minLiquidity,  setMinLiquidity]  = usePref<number>("arb:min-liq", 0);
   const [maxDateGap,    setMaxDateGap]    = usePref<number>("arb:max-date-gap", 0);
+  const [notesFilter,   setNotesFilter]   = usePref<"all" | "annotated" | "unannotated">("arb:notes-filter", "all");
   const [flashIds,   setFlashIds]   = useState<Set<string>>(new Set());
   const [kalshiCatsArr, setKalshiCatsArr] = usePref<string[]>("arb:kalshi-cats", [...KALSHI_CATS]);
   const kalshiCats = useMemo(() => new Set(kalshiCatsArr), [kalshiCatsArr]);
@@ -2530,9 +2537,11 @@ export default function ArbPage() {
         const gap = dateGapDays(o.matchQuality.polyCloses, o.closes);
         if (gap !== null && gap > maxDateGap) return false;
       }
+      if (notesFilter === "annotated" && !notesMap[o.id]) return false;
+      if (notesFilter === "unannotated" && !!notesMap[o.id]) return false;
       if (search && !o.question.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
-    }), [opps, minEdge, cat, minMatch, minLiquidity, maxDateGap, search, showWatchlist, watchlistIds]);
+    }), [opps, minEdge, cat, minMatch, minLiquidity, maxDateGap, notesFilter, notesMap, search, showWatchlist, watchlistIds]);
 
   const totalEdge = filtered.reduce((s, o) => s + o.capitalCap * o.netEdgePct / 100, 0);
   const avgEdge   = filtered.length ? filtered.reduce((s, o) => s + o.netEdgePct, 0) / filtered.length : 0;
@@ -3020,6 +3029,24 @@ export default function ArbPage() {
                 </button>
               ))}
             </div>
+            {Object.keys(notesMap).length > 0 && (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-muted-foreground font-medium mr-0.5">Notes:</span>
+                {(["all", "annotated", "unannotated"] as const).map(v => (
+                  <button key={v} suppressHydrationWarning onClick={() => setNotesFilter(v)}
+                          className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${
+                            notesFilter === v
+                              ? v === "annotated"
+                                ? "bg-violet-500/15 text-violet-700 dark:text-violet-400 border-violet-500/30"
+                                : "bg-foreground text-background border-foreground"
+                              : "bg-background border-border text-muted-foreground hover:text-foreground"
+                          }`}
+                          title={v === "annotated" ? "Show only pairs with notes" : v === "unannotated" ? "Show only pairs without notes" : "Show all pairs"}>
+                    {v === "all" ? "Any" : v === "annotated" ? "✎ Noted" : "No note"}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="ml-auto flex items-center gap-2">
               <span className="text-[11px] text-muted-foreground">Min edge</span>
               <input type="range" min="0" max="6" step="0.5" value={minEdge} onChange={e => setMinEdge(+e.target.value)} className="w-24"/>
@@ -3054,8 +3081,8 @@ export default function ArbPage() {
         {!scanning && filtered.length > 0 && (
           <>
             {view === "table"   && <TableView opps={filtered} onSelect={selectOpp} sortBy={sortBy} setSortBy={setSortBy} flashIds={flashIds} watchlistIds={watchlistIds} onStar={toggleWatchlist} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion} realHistRef={realHistRef} histVersion={histVersion} prevEdgeRef={prevEdgeRef} notesMap={notesMap}/>}
-            {view === "cards"   && <CardView  opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist} realHistRef={realHistRef}/>}
-            {view === "ticker"  && <TickerView opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist}/>}
+            {view === "cards"   && <CardView  opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist} realHistRef={realHistRef} notesMap={notesMap}/>}
+            {view === "ticker"  && <TickerView opps={filtered} onSelect={selectOpp} watchlistIds={watchlistIds} onStar={toggleWatchlist} notesMap={notesMap}/>}
             {view === "scatter" && <ScatterPlot opps={filtered} aiScoreCache={aiScoreCacheRef} aiScoreVersion={aiScoreVersion} onSelect={selectOpp}/>}
             <p className="text-[10px] text-muted-foreground text-center mt-6 font-mono">
               {opps.length} pairs scanned · keyword-matched · net of Poly 2% + Kalshi 7% fees

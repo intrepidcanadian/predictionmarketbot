@@ -1732,3 +1732,38 @@ All current milestones complete. Next run should define new A7+ milestones or co
 
 ### Next milestone to pick up
 **A47** — Candidates: Notes filter (Annotated/Unannotated pill), refresh Poly positions after each scan, count-of-H-match pairs per heatmap card, scan-log "pairs" column
+
+---
+
+## 2026-04-28T00:00:00Z — milestone A47: Notes filter pill + CardView/TickerView indicators
+
+### What I did
+- Added `notesFilter` state via `usePref<"all" | "annotated" | "unannotated">("arb:notes-filter", "all")` — persists across page reloads
+- Updated `filtered` useMemo: when `notesFilter === "annotated"`, excludes pairs with no note in `notesMap`; when `"unannotated"`, excludes pairs that have a note; added `notesFilter` and `notesMap` to deps array
+- Added "Notes:" filter pill group in the filter row (between "Dates:" and the min-edge slider): renders only when `Object.keys(notesMap).length > 0` so the pill is invisible until at least one note exists; three pills — "Any" (default), "✎ Noted" (violet active highlight), "No note" (default active highlight); each has a descriptive `title` tooltip
+- Updated `CardView` signature: added `notesMap?: Record<string, string>` prop; renders a `<span title={...}><PenLine .../></span>` in the card footer alongside the sparkline when `notesMap[opp.id]` is truthy; wrapped in existing `flex items-center gap-1.5` div to keep footer alignment intact
+- Updated `TickerView` signature: added `notesMap?: Record<string, string>` prop; renders the same `PenLine` span between the `CategoryBadge` and the star button
+- Updated both call sites in `ArbPage` to pass `notesMap={notesMap}`
+
+### Tradeoffs / shortcuts
+- Notes filter pill group is conditionally shown (only when `notesMap` is non-empty) to avoid confusing an empty "Notes" filter row on fresh installs with no annotations
+- `notesFilter` is persisted via `usePref` like all other filters — survives page reload; defaults to "all" (no filtering)
+- `PenLine` in CardView/TickerView uses `<span title={...}>` wrapper because lucide-react SVG components do not accept a `title` prop (would cause TS2322)
+- No new API routes, no new localStorage keys beyond `arb:notes-filter`
+
+### Verified by
+- `node_modules/.bin/tsc --noEmit` — exit 0, 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: filter row shows "Notes: Any ✎ Noted No note" pills (arb-notes.json has 1 note)
+- Clicked "✎ Noted" → LIVE OPPORTUNITIES dropped to 1 of 25; table shows only the annotated pair; KPIs updated to 74.58% avg edge, $100 cap, $75 profit
+- Pill rendered with violet active styling when "✎ Noted" active; "Any" pill dark when default
+- No new console errors (pre-existing Kalshi category pill hydration warnings unchanged)
+
+### Follow-ups for future runs
+- Refresh Poly positions after each auto-scan (deferred from A43/A44)
+- Count-of-H-match pairs per heatmap card (deferred from A44)
+- Scan-log "pairs" column listing top pair IDs for that scan
+- Could pass `notesFilter` through the `?pair=` URL encoding (for Copy Link to preserve notes-filter state)
+
+### Next milestone to pick up
+**A48** — Candidates: refresh Poly positions after each scan; count-of-H-match per heatmap card; scan-log pairs column; CardView/TickerView note indicator tooltip on hover
