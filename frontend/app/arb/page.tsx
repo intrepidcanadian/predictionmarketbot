@@ -1921,6 +1921,88 @@ function ArbDetail({ opp, onClose, isWatched, onStar, aiScoreCache, onAiScoreRea
             </div>
           )}
 
+          {/* Trade Readiness Checklist */}
+          {(() => {
+            const gap    = dateGapDays(opp.matchQuality.polyCloses, opp.closes);
+            const minLiq = Math.min(opp.poly.liquidity, opp.kalshi.liquidity);
+            type Check = { label: string; pass: boolean | null; loading: boolean; note: string };
+            const checks: Check[] = [
+              {
+                label:   "Net spread positive",
+                pass:    opp.netEdgePct > 0,
+                loading: false,
+                note:    `${opp.netEdgePct >= 0 ? "+" : ""}${opp.netEdgePct.toFixed(1)}% mid`,
+              },
+              {
+                label:   "CLOB ask spread profitable",
+                pass:    clobNetPerContract != null ? clobNetPerContract > 0 : null,
+                loading: obLoading && clobNetPerContract == null,
+                note:    clobNetPerContract != null
+                  ? `${clobNetPerContract >= 0 ? "+" : ""}${Math.round(clobNetPerContract * 100)}¢ per contract`
+                  : obLoading ? "loading…" : "orderbook unavailable",
+              },
+              {
+                label:   "AI similarity ≥ 70",
+                pass:    aiMatch ? aiMatch.score >= 70 : null,
+                loading: aiMatchLoading,
+                note:    aiMatch ? `${aiMatch.score}% (${aiMatch.grade})` : aiMatchLoading ? "scoring…" : "not scored",
+              },
+              {
+                label:   "Date gap ≤ 90 days",
+                pass:    gap != null ? gap <= 90 : null,
+                loading: false,
+                note:    gap != null ? fmtDateGap(gap) : "no poly date",
+              },
+              {
+                label:   "Min liquidity ≥ $500",
+                pass:    minLiq >= 500,
+                loading: false,
+                note:    `${fmtUsd(minLiq)} weakest side`,
+              },
+            ];
+            const scored    = checks.filter(c => !c.loading && c.pass !== null);
+            const passCount = scored.filter(c => c.pass === true).length;
+            const allReady  = passCount === checks.length;
+            const mostly    = passCount >= checks.length - 1;
+            const badgeLabel = allReady ? "READY" : mostly ? "LIKELY" : "REVIEW";
+            const badgeCls   = allReady
+              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+              : mostly
+              ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+              : "bg-rose-500/15 text-rose-700 dark:text-rose-400";
+            return (
+              <div className="rounded-xl border bg-card p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Trade Readiness</h3>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${badgeCls}`}>{badgeLabel}</span>
+                </div>
+                <div className="space-y-1.5">
+                  {checks.map((c) => (
+                    <div key={c.label} className="flex items-center gap-2 text-[11px]">
+                      {c.loading ? (
+                        <span className="size-3.5 shrink-0 text-muted-foreground text-xs leading-none">⟳</span>
+                      ) : c.pass === null ? (
+                        <span className="size-3.5 shrink-0 text-muted-foreground text-xs leading-none">—</span>
+                      ) : c.pass ? (
+                        <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"/>
+                      ) : (
+                        <X className="size-3.5 shrink-0 text-rose-500 dark:text-rose-400"/>
+                      )}
+                      <span className={c.pass === true ? "text-foreground" : "text-muted-foreground"}>{c.label}</span>
+                      <span className="ml-auto font-mono text-[10px] text-muted-foreground">{c.note}</span>
+                    </div>
+                  ))}
+                </div>
+                {notesMap[opp.id] && (
+                  <div className="mt-2.5 pt-2 border-t flex items-center gap-1.5 text-[10px] text-violet-600 dark:text-violet-400">
+                    <PenLine className="size-3 shrink-0"/>
+                    <span className="truncate italic">{notesMap[opp.id]}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Create Rule from Arb */}
           {opp.netEdgePct > 0 && (
             <button
