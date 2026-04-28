@@ -4,6 +4,43 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ---
 
+## 2026-04-28T00:00:00Z — milestone A48: Trade Readiness checklist
+
+### What I did
+- Added a "Trade Readiness" panel in `ArbDetail` just before the "Create Rule from Arb" button
+- Evaluates 5 criteria inline using already-available state (no new API calls):
+  1. **Net spread positive** — `opp.netEdgePct > 0` (immediate)
+  2. **CLOB ask spread profitable** — `clobNetPerContract > 0` (shows ⟳ while orderbook loads)
+  3. **AI similarity ≥ 70** — `aiMatch.score >= 70` (shows ⟳ while scoring)
+  4. **Date gap ≤ 90 days** — `dateGapDays(polyCloses, closes) <= 90` (immediate)
+  5. **Min liquidity ≥ $500** — `Math.min(poly.liquidity, kalshi.liquidity) >= 500` (immediate)
+- Criteria rows use ✓ (emerald Check icon), ✗ (rose X icon), ⟳ (loading), or — (data unavailable) icons
+- Summary badge: **READY** (all 5 pass) / **LIKELY** (4 of 5 pass) / **REVIEW** (≤3 pass), color-coded emerald/amber/rose
+- When a note exists for the pair, shows it as a violet italic preview at the bottom of the panel (consistent with existing note UI)
+- Added A48 entry to `frontend/ROADMAP.md`
+
+### Tradeoffs / shortcuts
+- `pass` is `boolean | null`: `null` means data unavailable (e.g. no poly close date) and is excluded from the pass-count denominator — conservative but avoids false positives from missing data
+- Panel uses `passCount === checks.length` for READY rather than `passCount === scored.length` so async-loading items don't prematurely flip the badge to READY while data is still loading
+- No new state or API routes — purely derived from data already fetched by ArbDetail's existing effects
+
+### Verified by
+- `bun run tsc --noEmit` — 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser: opened first arb row drawer; scrolled to bottom → "TRADE READINESS" panel visible with REVIEW badge; ✓ for net spread, ✗ for CLOB spread (negative), — for AI (not yet scored), ✗ for date gap (9mo), ✗ for liquidity ($0 on stale snapshot)
+- Note text "Verified - same GTA VI resolution. 9mo date gap is a concern." shown in violet at bottom of panel
+- No console errors
+
+### Follow-ups for future runs
+- Could add the readiness badge to the TableView row as a mini pill (so traders can see READY/REVIEW at a glance without opening the drawer)
+- Could make the note preview in the checklist panel clickable (opens the note editor)
+- Liquidity showing $0 for many pairs suggests the snapshot data has stale/zeroed liquidity fields — worth investigating if the scan route should refresh liquidity from the CLOB rather than relying on mid-scan estimates
+
+### Next milestone to pick up
+**A49** — suggestions: readiness badge as a TableView column pill; per-pair CLOB depth refresh button; or a new direction (e.g., Polymarket CLOB stream via WebSocket for real-time price updates)
+
+---
+
 ## 2026-04-27T16:20:00Z — milestone A45: Pair notes
 
 ### What I did
