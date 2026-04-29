@@ -346,6 +346,52 @@ function MatchBadge({ grade }: { grade: "H" | "M" | "L" }) {
   );
 }
 
+// ── Row-level readiness ───────────────────────────────────────────────
+// Lightweight pre-screen of an arb pair, computed from data the table already has.
+// CLOB orderbook (the 5th criterion in the drawer) is excluded because it isn't fetched
+// per-row — the drawer's 5-criteria check stays authoritative.
+type RowReadiness = {
+  grade: "READY" | "LIKELY" | "REVIEW";
+  passCount: number;
+  total: number;
+  details: { label: string; pass: boolean | null }[];
+};
+function computeRowReadiness(opp: ScanOpp, aiScore: number | null): RowReadiness {
+  const gap    = dateGapDays(opp.matchQuality.polyCloses, opp.closes);
+  const minLiq = Math.min(opp.poly.liquidity, opp.kalshi.liquidity);
+  const details: { label: string; pass: boolean | null }[] = [
+    { label: "Net spread > 0",    pass: opp.netEdgePct > 0 },
+    { label: "Date gap ≤ 90d",    pass: gap != null ? gap <= 90 : null },
+    { label: "Min liq ≥ $500",    pass: minLiq >= 500 },
+    { label: "AI similarity ≥ 70", pass: aiScore != null ? aiScore >= 70 : null },
+  ];
+  const total     = details.length;
+  const passCount = details.filter(d => d.pass === true).length;
+  const failCount = details.filter(d => d.pass === false).length;
+  const grade     = failCount === 0 && passCount === total ? "READY"
+                  : failCount <= 1                         ? "LIKELY"
+                  :                                          "REVIEW";
+  return { grade, passCount, total, details };
+}
+
+function ReadinessPill({ readiness }: { readiness: RowReadiness }) {
+  const cls = readiness.grade === "READY"
+    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-emerald-500/30"
+    : readiness.grade === "LIKELY"
+    ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 ring-amber-500/30"
+    : "bg-rose-500/15 text-rose-700 dark:text-rose-400 ring-rose-500/30";
+  const short = readiness.grade === "READY" ? "R" : readiness.grade === "LIKELY" ? "L" : "RVW";
+  const tip   = readiness.details
+    .map(d => `${d.pass === true ? "✓" : d.pass === false ? "✗" : "—"} ${d.label}`)
+    .join("\n");
+  return (
+    <span title={`${readiness.passCount}/${readiness.total} pre-screen criteria pass\n${tip}\n(CLOB depth verified in drawer)`}
+          className={`inline-flex items-center font-semibold rounded ring-1 text-[9px] px-1.5 py-0.5 tabular-nums tracking-wide ${cls}`}>
+      {short}
+    </span>
+  );
+}
+
 function VenueChip({ venue, size = "sm" }: { venue: "poly" | "kalshi"; size?: "sm" | "md" }) {
   const c = venue === "poly" ? { bg: "bg-[#1652f0]", fg: "text-white", l: "P" } : { bg: "bg-[#00d090]", fg: "text-black", l: "K" };
   return (
@@ -699,6 +745,7 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
     { key: "edge",   label: "Edge",        sort: "edge" },
     { key: "match",  label: "Match",       sort: "match" as SortBy },
     ...(hasAiScores ? [{ key: "ai", label: "AI", sort: "ai" as SortBy }] : []),
+    { key: "ready",  label: "Ready" },
     { key: "market", label: "Market" },
     { key: "poly",   label: "Polymarket",  right: true },
     { key: "kalshi", label: "Kalshi",      right: true },
@@ -775,6 +822,13 @@ function TableView({ opps, onSelect, sortBy, setSortBy, flashIds, watchlistIds, 
                         })()}
                       </td>
                     )}
+                    <td className="px-3 py-2.5">
+                      {(() => {
+                        const aiScore = aiScoreCache?.current?.get(opp.id)?.score ?? null;
+                        const r = computeRowReadiness(opp, aiScore);
+                        return <ReadinessPill readiness={r}/>;
+                      })()}
+                    </td>
                     <td className="px-3 py-2.5 max-w-xs">
                       <div className="flex items-center gap-2 min-w-0 mb-0.5">
                         <CategoryBadge cat={opp.category}/>

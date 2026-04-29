@@ -4,6 +4,43 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ---
 
+## 2026-04-29T00:00:00Z — milestone A49: Readiness pill in TableView
+
+### What I did
+- Added module-level helpers in `app/arb/page.tsx` (just below `MatchBadge`):
+  - `RowReadiness` type and `computeRowReadiness(opp, aiScore)` — evaluates 4 sync criteria and returns `{ grade, passCount, total, details[] }` where `grade` is `READY` / `LIKELY` / `REVIEW`
+  - `ReadinessPill` component — renders a compact 9px pill (`R`/`L`/`RVW`) with the same emerald/amber/rose ring styling as `MatchBadge`; multiline `title` tooltip lists every criterion with ✓/✗/— and a footer explaining CLOB depth is drawer-only
+- Wired into `TableView`:
+  - New `ready` column inserted between `ai` (or `match` when AI col absent) and `market` in the `cols` array
+  - Per-row `<td>` reads `aiScoreCache?.current?.get(opp.id)?.score ?? null` and renders `<ReadinessPill readiness={computeRowReadiness(opp, aiScore)}/>`
+- Kept the drawer's 5-criterion `Trade Readiness` panel (A48) untouched — it remains authoritative because it includes CLOB orderbook depth, which isn't fetched per-row
+
+### Tradeoffs / shortcuts
+- Row pill evaluates 4 criteria, drawer evaluates 5: row excludes the CLOB ask-spread check because that data is fetched only when a pair's drawer opens. The tooltip footer "(CLOB depth verified in drawer)" makes the gap explicit so a row-level READY isn't misread as final
+- `LIKELY` covers both "3 pass + 1 fail" and "3 pass + 1 unknown (AI not scored)" — keeps the badge useful before AI scores load. Once Score-All has run, the badge tightens
+- No new state, no API routes, no new sort key — purely derived from existing `opps` + `aiScoreCacheRef`. Re-renders piggyback on `aiScoreVersion` (bumped by `onAiScoreReady`)
+- Title tooltips use `\n` for line breaks — most browsers preserve them in the native tooltip
+
+### Verified by
+- `./node_modules/.bin/tsc --noEmit` — exit 0, 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- Browser at http://localhost:3111/arb:
+  - Header row reads `… Match | Ready | Market …` exactly
+  - First 6 rows render `RVW` pills with rose styling and tooltip "1/4 pre-screen criteria pass | ✓ Net spread > 0 | ✗ Date gap ≤ 90d | ✗ Min liq ≥ $500 | — AI similarity ≥ 70 | (CLOB depth verified in drawer)"
+  - Clicking first row opens drawer; Trade Readiness panel still present (A48 unchanged)
+  - No console errors
+
+### Follow-ups for future runs
+- Sort by readiness (add `"ready"` to `SortBy` union; comparator: READY > LIKELY > REVIEW with passCount tiebreaker)
+- Filter pills "Readiness: Any / Ready+ / Likely+" in the filter row, persisted via `usePref`
+- Add the readiness pill to CardView footers and TickerView rows (parity with MatchBadge / star / PenLine indicators)
+- Consider letting users tune the criterion thresholds (currently hard-coded to 90d / $500 / 70)
+
+### Next milestone to pick up
+**A50** — Candidates: sort/filter by readiness; readiness pill in CardView+TickerView; user-configurable readiness thresholds; CLOB orderbook prefetch for top-N rows so the row pill can include the 5th criterion
+
+---
+
 ## 2026-04-28T00:00:00Z — milestone A48: Trade Readiness checklist
 
 ### What I did
