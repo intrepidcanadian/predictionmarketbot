@@ -2273,6 +2273,7 @@ export default function ArbPage() {
   const [minLiquidity,  setMinLiquidity]  = usePref<number>("arb:min-liq", 0);
   const [maxDateGap,    setMaxDateGap]    = usePref<number>("arb:max-date-gap", 0);
   const [notesFilter,   setNotesFilter]   = usePref<"all" | "annotated" | "unannotated">("arb:notes-filter", "all");
+  const [readinessFilter, setReadinessFilter] = usePref<"all" | "likely" | "ready">("arb:readiness", "all");
   const [flashIds,   setFlashIds]   = useState<Set<string>>(new Set());
   const [kalshiCatsArr, setKalshiCatsArr] = usePref<string[]>("arb:kalshi-cats", [...KALSHI_CATS]);
   const kalshiCats = useMemo(() => new Set(kalshiCatsArr), [kalshiCatsArr]);
@@ -2675,9 +2676,16 @@ export default function ArbPage() {
       }
       if (notesFilter === "annotated" && !notesMap[o.id]) return false;
       if (notesFilter === "unannotated" && !!notesMap[o.id]) return false;
+      if (readinessFilter !== "all") {
+        const aiScore = aiScoreCacheRef.current.get(o.id)?.score ?? null;
+        const grade   = computeRowReadiness(o, aiScore).grade;
+        if (readinessFilter === "ready"  && grade !== "READY") return false;
+        if (readinessFilter === "likely" && grade === "REVIEW") return false;
+      }
       if (search && !o.question.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
-    }), [opps, minEdge, cat, minMatch, minLiquidity, maxDateGap, notesFilter, notesMap, search, showWatchlist, watchlistIds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }), [opps, minEdge, cat, minMatch, minLiquidity, maxDateGap, notesFilter, notesMap, readinessFilter, aiScoreVersion, search, showWatchlist, watchlistIds]);
 
   const totalEdge = filtered.reduce((s, o) => s + o.capitalCap * o.netEdgePct / 100, 0);
   const avgEdge   = filtered.length ? filtered.reduce((s, o) => s + o.netEdgePct, 0) / filtered.length : 0;
@@ -3162,6 +3170,24 @@ export default function ArbPage() {
                         className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${maxDateGap === v ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}
                         title={v === 0 ? "Show all pairs regardless of close date mismatch" : `Hide pairs whose Poly and Kalshi close dates differ by more than ${v} days`}>
                   {v === 0 ? "Any" : `≤${v}d`}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground font-medium mr-0.5">Ready:</span>
+              {(["all", "likely", "ready"] as const).map(v => (
+                <button key={v} suppressHydrationWarning onClick={() => setReadinessFilter(v)}
+                        className={`h-7 px-2.5 rounded-md text-xs font-medium border transition-colors ${
+                          readinessFilter === v
+                            ? v === "ready"
+                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                              : v === "likely"
+                              ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                              : "bg-foreground text-background border-foreground"
+                            : "bg-background border-border text-muted-foreground hover:text-foreground"
+                        }`}
+                        title={v === "ready" ? "Show only READY pairs (all 4 pre-screen criteria pass)" : v === "likely" ? "Show READY + LIKELY pairs (≥3 of 4 pre-screen criteria pass)" : "Show all pairs regardless of readiness"}>
+                  {v === "all" ? "Any" : v === "likely" ? "Likely+" : "Ready"}
                 </button>
               ))}
             </div>

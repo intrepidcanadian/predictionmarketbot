@@ -4,6 +4,42 @@ Append-only log. Each run records what was done, tradeoffs, and what to pick up 
 
 ---
 
+## 2026-04-30T00:00:00Z — milestone A50: Readiness filter pill
+
+### What I did
+- Added `readinessFilter` state via `usePref<"all" | "likely" | "ready">("arb:readiness", "all")` next to the other persisted filters in `ArbPage`
+- Extended the `filtered` `useMemo` with a readiness gate that runs `computeRowReadiness(o, aiScoreCacheRef.current.get(o.id)?.score ?? null)` per pair when the filter is non-default; "Likely+" hides only `REVIEW` grades, "Ready" keeps only `READY`
+- Added `aiScoreVersion` to the deps array so the filter re-evaluates as AI scores stream in (existing eslint hook rule expects `.current` to be tracked separately — added an inline disable comment, same pattern used elsewhere in the file would have warned otherwise)
+- New filter pill group "Ready: Any / Likely+ / Ready" rendered between the Dates and Notes pill groups, with the same `h-7 px-2.5 rounded-md` styling as the surrounding pills; active "Ready" highlights emerald-tinted, active "Likely+" amber-tinted, mirroring the row `ReadinessPill` palette so users can recognise the connection
+- Added A50 entry to `frontend/ROADMAP.md`
+
+### Tradeoffs / shortcuts
+- Filter is shown unconditionally (unlike the Notes pill which is hidden until at least one note exists) because every row has a readiness grade — there is no "empty" state to hide for
+- "Likely+" intentionally accepts both grades that hit ≥3/4 criteria: this matches the same threshold the drawer uses for `LIKELY` so the row pill, drawer badge, and filter share semantics
+- Reading `aiScoreCacheRef.current` inside `useMemo` is intentional — AI scores arrive asynchronously and bumping `aiScoreVersion` already triggers re-renders; switching to a real state would force every cache write to reflow the filter
+
+### Verified by
+- `./node_modules/.bin/tsc --noEmit` — exit 0, 0 errors
+- `python -m pytest` in executor/ — 35/35 pass
+- preview_start + browser at http://localhost:3111/arb:
+  - Filter row reads `… Dates: Any ≤30d ≤90d ≤180d ≤365d  Ready: Any Likely+ Ready  Notes: Any ✎ Noted No note …`
+  - Clicking "Likely+" → table rows drop from 25 to 0 (all current pairs are REVIEW grade in the snapshot — expected, matches A49 build-log finding) and the pill flips to amber-tinted
+  - Clicking "Any" in the Ready group restores 25 rows
+  - `localStorage.getItem("arb:readiness")` returns `"likely"` after click and `"all"` after reset → persistence verified
+  - No console errors reported by `preview_console_logs`
+
+### Follow-ups for future runs
+- Add the readiness pill to CardView footers + TickerView rows for parity with MatchBadge / star / PenLine indicators
+- Add `"ready"` to the `SortBy` union (READY > LIKELY > REVIEW with passCount tiebreaker) so users can sort by readiness instead of edge
+- User-configurable readiness thresholds (currently hard-coded 90d / $500 / 70 AI)
+- Persist `readinessFilter` through the `?pair=` Copy-Link encoding so a shared link captures the readiness view
+- Encode current readiness filter into Force-Refresh / Run Scan tooltip ("Showing X of Y pairs at this readiness level")
+
+### Next milestone to pick up
+**A51** — Candidates: readiness pill in CardView+TickerView; sort-by-readiness in TableView; configurable readiness thresholds; encode readiness filter into shareable URL
+
+---
+
 ## 2026-04-29T00:00:00Z — milestone A49: Readiness pill in TableView
 
 ### What I did
